@@ -524,7 +524,7 @@ export default function App() {
           stats={stats}
           avgPlayersPerRound={avgPlayersPerRound}
         />
-        <Analytics />
+        <Analytics/>
         <SpeedInsights/>
       </div>
 
@@ -555,7 +555,7 @@ function Header({
           Imposter Game
         </h1>
         <p className="text-xs md:text-sm opacity-70 mt-1">
-          One-word clue party game · TikTok-ready
+          One-word clue party game · Play with friends in seconds!
         </p>
       </button>
       <div className="flex items-center gap-3">
@@ -596,7 +596,7 @@ function Landing({
       {/* Hero / host card */}
       <div className="rounded-3xl p-6 bg-zinc-900/70 border border-zinc-700 shadow-xl">
         <h2 className="text-2xl md:text-3xl font-bold mb-2">
-          Play the TikTok imposter game with your friends
+          Play the imposter game with your friends
         </h2>
         <p className="opacity-80 mb-4 text-sm md:text-base">
           Everyone gets a secret word… except the imposter. Go around with one-word clues,
@@ -605,7 +605,7 @@ function Landing({
         <ul className="text-xs md:text-sm opacity-80 mb-4 list-disc pl-5 space-y-1">
           <li>Perfect for living rooms, game nights, and pre-game hangs</li>
           <li>Works on one phone (pass-and-play) or online with room codes</li>
-          <li>No login, no ads, just vibes</li>
+          <li>No login, apps, or ads, just vibes</li>
         </ul>
 
         <label className="text-sm opacity-80">Your name (host)</label>
@@ -1231,15 +1231,17 @@ function Footer({
 }) {
   return (
     <div className="text-xs opacity-60 mt-8 text-center space-y-1">
-      <div>Built as a prototype party game. No accounts, no chat, just vibes.</div>
+      <div>Built as a fun party game. No accounts, no chat, just vibes.</div>
       {!onlineAvailable && (
         <div>Online rooms will unlock after Supabase is configured.</div>
       )}
+      {/*}
       <div className="flex justify-center gap-4 mt-2 text-[11px] text-zinc-400">
         <span>Rooms hosted: {stats.roomsHosted}</span>
         <span>Rounds played: {stats.roundsStarted}</span>
         <span>Avg players/round: {avgPlayersPerRound}</span>
       </div>
+      */}
     </div>
   );
 }
