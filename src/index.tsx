@@ -1,21 +1,13 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
-    <meta
-      name="description"
-      content="Imposter Game – one-word clue party game"
-    />
-    <title>Imposter Game</title>
+import React from "react";
+import ReactDOM from "react-dom/client";
+import "./style.css";
+import App from "./App";
 
-    <!-- Tailwind CDN for your styles -->
-    <script src="https://cdn.tailwindcss.com"></script>
-  </head>
-  <body class="bg-zinc-950">
-    <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root"></div>
-  </body>
-</html>
+const container = document.getElementById("root") as HTMLElement;
+const root = ReactDOM.createRoot(container);
+
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
