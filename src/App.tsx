@@ -30,6 +30,9 @@ interface RoundConfig {
   secretWord: string;
 }
 
+// voterId -> targetPlayerId
+type VotesMap = Record<string, string>;
+
 interface SyncedState {
   stage: "landing" | "lobby" | "game" | "reveal";
   roomCode: string;
@@ -37,7 +40,7 @@ interface SyncedState {
   round: RoundConfig | null;
   turnIndex: number;
   wordHistory: { name: string; word: string }[];
-  votes: Record<string, number>;
+  votes: VotesMap;
 }
 
 const onlineAvailable = !!supabase;
@@ -50,7 +53,7 @@ export default function App() {
   const [round, setRound] = useState<RoundConfig | null>(null);
   const [turnIndex, setTurnIndex] = useState(0);
   const [wordHistory, setWordHistory] = useState<{ name: string; word: string }[]>([]);
-  const [votes, setVotes] = useState<Record<string, number>>({});
+  const [votes, setVotes] = useState<VotesMap>({});
   const [myPlayerId, setMyPlayerId] = useState("");
 
   const [isOnline, setIsOnline] = useState(false);
@@ -81,7 +84,7 @@ export default function App() {
   }
 
   async function pushState(next: SyncedState) {
-    // 🔧 FIX: don't gate on isOnline here, only on Supabase existing
+    // Only require Supabase to exist; which flows call this is controlled elsewhere
     if (!onlineAvailable || !supabase) return;
     const { error } = await supabase.from("rooms").upsert({
       code: next.roomCode,
@@ -171,7 +174,7 @@ export default function App() {
     await pushState(next);
   }
 
-  async function joinOnlineRoom(code: string) {
+  async function joinOnlineRoom(code: string, name: string) {
     if (!onlineAvailable || !supabase) {
       alert("Online play isn’t configured yet.");
       return;
@@ -181,6 +184,7 @@ export default function App() {
     if (!joinCode) return;
 
     const myId = crypto.randomUUID();
+    const playerName = name.trim() || "Player";
 
     const { data, error } = await supabase
       .from("rooms")
@@ -201,7 +205,7 @@ export default function App() {
     if (!playersNext.find((p) => p.id === myId)) {
       playersNext = [
         ...playersNext,
-        { id: myId, name: hostName || "Player", ready: false },
+        { id: myId, name: playerName, ready: false },
       ];
     }
 
@@ -275,8 +279,14 @@ export default function App() {
     }
   }
 
-  function castVote(name: string) {
-    const newVotes = { ...votes, [name]: (votes[name] || 0) + 1 };
+  function castVote(targetId: string) {
+    if (!myPlayerId) return;
+
+    // 1 vote per player: overwrite your previous vote
+    const newVotes: VotesMap = {
+      ...votes,
+      [myPlayerId]: targetId,
+    };
     setVotes(newVotes);
 
     if (isOnline) {
@@ -389,20 +399,22 @@ function Landing({
   setHostName: (v: string) => void;
   onCreateLocal: () => void;
   onHostOnline: () => void;
-  onJoinOnline: (code: string) => void;
+  onJoinOnline: (code: string, name: string) => void;
   onlineAvailable: boolean;
 }) {
   const [joinCode, setJoinCode] = useState("");
+  const [joinName, setJoinName] = useState("");
 
   return (
     <div className="grid gap-6 md:grid-cols-2">
+      {/* Host card */}
       <div className="rounded-3xl p-6 bg-zinc-800/50 border border-zinc-700 shadow-xl">
         <h2 className="text-2xl font-bold mb-2">Play with friends in seconds</h2>
         <p className="opacity-80 mb-4">
           Create a room, pick a secret word, and try to spot the one friend who has no idea what
           you're talking about.
         </p>
-        <label className="text-sm opacity-80">Your name</label>
+        <label className="text-sm opacity-80">Your name (host)</label>
         <input
           className="w-full mt-1 mb-4 px-3 py-2 bg-zinc-900/60 border border-zinc-700 rounded-xl"
           placeholder="Your name"
@@ -432,19 +444,32 @@ function Landing({
           </p>
         )}
       </div>
+
+      {/* Join card */}
       <div className="rounded-3xl p-6 bg-zinc-800/30 border border-zinc-700">
         <h3 className="text-xl font-semibold mb-2">Join a room</h3>
         <p className="text-sm opacity-80 mb-3">
-          Enter the room code shared by your friend to join their game.
+          Enter your name and the room code shared by your friend.
         </p>
+
+        <label className="text-sm opacity-80">Your name</label>
+        <input
+          className="w-full mt-1 mb-3 px-3 py-2 bg-zinc-900/60 border border-zinc-700 rounded-xl"
+          placeholder="Your name"
+          value={joinName}
+          onChange={(e) => setJoinName(e.target.value)}
+        />
+
+        <label className="text-sm opacity-80">Room code</label>
         <input
           className="w-full mt-1 mb-4 px-3 py-2 bg-zinc-900/60 border border-zinc-700 rounded-xl font-mono uppercase"
           placeholder="AB3K"
           value={joinCode}
           onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
         />
+
         <button
-          onClick={() => onJoinOnline(joinCode)}
+          onClick={() => onJoinOnline(joinCode, joinName)}
           disabled={!joinCode.trim() || !onlineAvailable}
           className={`w-full py-3 rounded-2xl font-semibold transition ${
             joinCode.trim() && onlineAvailable
@@ -489,6 +514,7 @@ function Lobby({
       </div>
 
       <div className="grid md:grid-cols-3 gap-6 mt-6">
+        {/* Players list */}
         <div className="md:col-span-2">
           <h3 className="font-semibold mb-2">Players</h3>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
@@ -516,43 +542,50 @@ function Lobby({
           </div>
         </div>
 
-        <div>
-          <h3 className="font-semibold mb-2">Round setup</h3>
-          <label className="text-sm opacity-80">Category</label>
-          <select
-            className="w-full mt-1 mb-3 px-3 py-2 bg-zinc-900/60 border border-zinc-700 rounded-xl"
-            value={categoryId}
-            onChange={(e) => setCategoryId(e.target.value)}
-          >
-            {defaultCategories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.label}
-              </option>
-            ))}
-          </select>
+        {/* Round setup – host only */}
+        {isHost ? (
+          <div>
+            <h3 className="font-semibold mb-2">Round setup (host)</h3>
+            <label className="text-sm opacity-80">Category</label>
+            <select
+              className="w-full mt-1 mb-3 px-3 py-2 bg-zinc-900/60 border border-zinc-700 rounded-xl"
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
+            >
+              {defaultCategories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
 
-          <label className="text-sm opacity-80">Or choose a custom secret word</label>
-          <input
-            className="w-full mt-1 mb-4 px-3 py-2 bg-zinc-900/60 border border-zinc-700 rounded-xl"
-            placeholder="(optional) e.g., giraffe"
-            value={customWord}
-            onChange={(e) => setCustomWord(e.target.value)}
-          />
-          <button
-            onClick={() => onStart(categoryId, customWord)}
-            disabled={!allReady || !isHost}
-            className={`w-full py-3 rounded-2xl font-semibold transition ${
-              allReady && isHost
-                ? "bg-white text-black"
-                : "bg-zinc-700 text-zinc-400 cursor-not-allowed"
-            }`}
-          >
-            Start game
-          </button>
-          <div className="text-xs opacity-70 mt-2">
-            Need at least 3 players and everyone ready. Only the host can start.
+            <label className="text-sm opacity-80">Or choose a custom secret word</label>
+            <input
+              className="w-full mt-1 mb-4 px-3 py-2 bg-zinc-900/60 border border-zinc-700 rounded-xl"
+              placeholder="(optional) e.g., giraffe"
+              value={customWord}
+              onChange={(e) => setCustomWord(e.target.value)}
+            />
+            <button
+              onClick={() => onStart(categoryId, customWord)}
+              disabled={!allReady}
+              className={`w-full py-3 rounded-2xl font-semibold transition ${
+                allReady
+                  ? "bg-white text-black"
+                  : "bg-zinc-700 text-zinc-400 cursor-not-allowed"
+              }`}
+            >
+              Start game
+            </button>
+            <div className="text-xs opacity-70 mt-2">
+              Need at least 3 players and everyone ready.
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="rounded-2xl bg-zinc-900/40 border border-zinc-700 p-4 flex items-center justify-center text-sm opacity-80">
+            Waiting for the host to pick a category and start the round.
+          </div>
+        )}
       </div>
     </div>
   );
@@ -574,19 +607,27 @@ function Game({
   round: RoundConfig;
   turnIndex: number;
   onSubmitWord: (w: string) => void;
-  onVote: (name: string) => void;
+  onVote: (targetId: string) => void;
   wordHistory: { name: string; word: string }[];
-  votes: Record<string, number>;
+  votes: VotesMap;
   onReveal: () => void;
 }) {
   const me = players.find((p) => p.id === myPlayerId)!;
   const mySeesSecret = !me.isImposter;
   const [word, setWord] = useState("");
   const currentPlayer = players[turnIndex];
-  const isMyTurn = currentPlayer?.id === myPlayerId;
+
+  const voteCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    Object.values(votes).forEach((targetId) => {
+      counts[targetId] = (counts[targetId] || 0) + 1;
+    });
+    return counts;
+  }, [votes]);
 
   return (
     <div className="grid md:grid-cols-3 gap-6">
+      {/* Left side: info & (hidden) clue input */}
       <div className="md:col-span-2 rounded-3xl p-6 bg-zinc-800/50 border border-zinc-700">
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -600,36 +641,46 @@ function Game({
             </div>
           </div>
         </div>
+
         <div className="rounded-2xl bg-zinc-900/60 border border-zinc-700 p-4 mb-4">
           <div className="text-sm opacity-70">Secret word</div>
           <div className="text-2xl font-black tracking-tight">
             {mySeesSecret ? round.secretWord : "???"}
           </div>
         </div>
-        <div className="rounded-2xl bg-zinc-900/40 border border-zinc-700 p-4">
-          <div className="text-sm opacity-70 mb-2">Give exactly one word on your turn</div>
+
+        {/* IRL mode explanation (no text input) */}
+        <div className="rounded-2xl bg-zinc-900/40 border border-zinc-700 p-4 mb-3">
+          <div className="text-sm opacity-80">
+            Say your one-word clue out loud on your turn. No typing needed in this version.
+          </div>
+          <div className="text-xs opacity-60 mt-1">
+            Turn order: you&apos;ll go when it&apos;s your turn in the circle.
+          </div>
+        </div>
+
+        {/* Hidden future text-input mode – kept for later */}
+        <div className="rounded-2xl bg-zinc-900/40 border border-zinc-700 p-4 hidden">
+          <div className="text-sm opacity-70 mb-2">
+            Give exactly one word on your turn (online text mode).
+          </div>
           <div className="text-xs opacity-70 mb-2">
             Current turn: <b>{currentPlayer?.name}</b>
           </div>
           <div className="flex gap-2">
             <input
-              disabled={!isMyTurn}
               className="flex-1 px-3 py-2 bg-zinc-900/60 border border-zinc-700 rounded-xl"
-              placeholder={isMyTurn ? "Your one-word clue" : "Wait for your turn…"}
+              placeholder="Your one-word clue"
               value={word}
               onChange={(e) => setWord(e.target.value)}
             />
             <button
-              disabled={!isMyTurn || !word.trim()}
               onClick={() => {
+                if (!word.trim()) return;
                 onSubmitWord(word.trim());
                 setWord("");
               }}
-              className={`px-4 py-2 rounded-xl font-semibold ${
-                isMyTurn && word.trim()
-                  ? "bg-white text-black"
-                  : "bg-zinc-700 text-zinc-400"
-              }`}
+              className="px-4 py-2 rounded-xl font-semibold bg-white text-black"
             >
               Say it
             </button>
@@ -637,34 +688,41 @@ function Game({
         </div>
       </div>
 
+      {/* Right side: votes (and clues only if present) */}
       <div className="rounded-3xl p-6 bg-zinc-800/30 border border-zinc-700">
-        <h4 className="font-semibold mb-2">Clues</h4>
-        <div className="space-y-2 max-h-72 overflow-auto pr-2">
-          {wordHistory.map((w, i) => (
-            <div
-              key={i}
-              className="flex items-center justify-between rounded-xl bg-zinc-900/60 border border-zinc-700 p-2"
-            >
-              <div className="text-sm">
-                <b>{w.name}</b>
-              </div>
-              <div className="font-mono text-sm">{w.word}</div>
+        {wordHistory.length > 0 && (
+          <>
+            <h4 className="font-semibold mb-2">Clues</h4>
+            <div className="space-y-2 max-h-40 overflow-auto pr-2 mb-4">
+              {wordHistory.map((w, i) => (
+                <div
+                  key={i}
+                  className="flex items-center justify-between rounded-xl bg-zinc-900/60 border border-zinc-700 p-2"
+                >
+                  <div className="text-sm">
+                    <b>{w.name}</b>
+                  </div>
+                  <div className="font-mono text-sm">{w.word}</div>
+                </div>
+              ))}
             </div>
-          ))}
-          {wordHistory.length === 0 && (
-            <div className="text-sm opacity-60">No clues yet.</div>
-          )}
+          </>
+        )}
+
+        <h4 className="font-semibold mb-2">Vote</h4>
+        <div className="text-xs opacity-70 mb-2">
+          Tap once to cast your vote. You only get one vote; tapping another player will move your
+          vote.
         </div>
-        <h4 className="font-semibold mt-4 mb-2">Vote</h4>
         <div className="grid grid-cols-2 gap-2">
           {players.map((p) => (
             <button
               key={p.id}
-              onClick={() => onVote(p.name)}
+              onClick={() => onVote(p.id)}
               className="rounded-xl bg-zinc-900/60 border border-zinc-700 p-2 text-left hover:bg-zinc-900"
             >
               <div className="text-sm font-semibold">{p.name}</div>
-              <div className="text-xs opacity-70">Votes: {votes[p.name] || 0}</div>
+              <div className="text-xs opacity-70">Votes: {voteCounts[p.id] || 0}</div>
             </button>
           ))}
         </div>
@@ -687,20 +745,34 @@ function Reveal({
 }: {
   players: Player[];
   round: RoundConfig;
-  votes: Record<string, number>;
+  votes: VotesMap;
   onNextRound: () => void;
 }) {
   const tally = useMemo(() => {
-    const entries = Object.entries(votes);
-    if (entries.length === 0) return null;
-    entries.sort((a, b) => b[1] - a[1]);
-    const [name, count] = entries[0];
-    return { name, count };
+    const counts: Record<string, number> = {};
+    Object.values(votes).forEach((targetId) => {
+      counts[targetId] = (counts[targetId] || 0) + 1;
+    });
+
+    let topTargetId: string | null = null;
+    let topCount = 0;
+    for (const [targetId, count] of Object.entries(counts)) {
+      if (count > topCount) {
+        topTargetId = targetId;
+        topCount = count;
+      }
+    }
+
+    return {
+      counts,
+      topTargetId,
+      topCount,
+    };
   }, [votes]);
 
   const imp = players.find((p) => p.isImposter);
-  const votedOut = tally?.name;
-  const success = imp && votedOut && imp.name === votedOut;
+  const votedOut = players.find((p) => p.id === tally.topTargetId);
+  const success = imp && votedOut && imp.id === votedOut.id;
 
   return (
     <div className="rounded-3xl p-6 bg-zinc-800/50 border border-zinc-700">
@@ -722,6 +794,12 @@ function Reveal({
           >
             {success ? "Crew wins!" : "Imposter survives!"}
           </div>
+          {votedOut && (
+            <div className="text-sm opacity-80 mt-3">
+              Most votes went to <b>{votedOut.name}</b> (
+              {tally.topCount} vote{tally.topCount === 1 ? "" : "s"}).
+            </div>
+          )}
         </div>
         <div className="rounded-2xl bg-zinc-900/40 border border-zinc-700 p-4">
           <h4 className="font-semibold mb-2">Vote tally</h4>
@@ -732,7 +810,9 @@ function Reveal({
                 className="flex items-center justify-between rounded-xl bg-zinc-950/50 border border-zinc-800 p-2"
               >
                 <div className="text-sm">{p.name}</div>
-                <div className="text-xs opacity-70">{votes[p.name] || 0}</div>
+                <div className="text-xs opacity-70">
+                  {tally.counts[p.id] || 0}
+                </div>
               </div>
             ))}
           </div>
