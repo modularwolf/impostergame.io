@@ -34,7 +34,7 @@ interface RoundConfig {
 type VotesMap = Record<string, string>;
 
 interface SyncedState {
-  stage: "landing" | "lobby" | "game" | "reveal";
+  stage: "landing" | "lobby" | "localRoles" | "game" | "reveal";
   roomCode: string;
   players: Player[];
   round: RoundConfig | null;
@@ -58,6 +58,9 @@ export default function App() {
 
   const [isOnline, setIsOnline] = useState(false);
   const [isHost, setIsHost] = useState(false);
+
+  // Local-only: pass-and-play role reveal index
+  const [localRoleIndex, setLocalRoleIndex] = useState(0);
 
   // --- Helpers to build/apply synced state ---
   function buildState(overrides: Partial<SyncedState> = {}): SyncedState {
@@ -84,7 +87,7 @@ export default function App() {
   }
 
   async function pushState(next: SyncedState) {
-    // Only require Supabase to exist; which flows call this is controlled elsewhere
+    // Only for online mode; local never calls this
     if (!onlineAvailable || !supabase) return;
     const { error } = await supabase.from("rooms").upsert({
       code: next.roomCode,
@@ -95,7 +98,7 @@ export default function App() {
     }
   }
 
-  // ---- Subscribe to Supabase realtime (everyone) ----
+  // ---- Subscribe to Supabase realtime (everyone online) ----
   useEffect(() => {
     if (!onlineAvailable || !isOnline || !roomCode || !supabase) return;
 
@@ -134,7 +137,8 @@ export default function App() {
     setIsOnline(false);
     setIsHost(false);
     setMyPlayerId("");
-    // keep hostName so host doesn't have to retype each time
+    setLocalRoleIndex(0);
+    // hostName preserved so host doesn't have to retype
   }
 
   // --------- LOCAL MODE ----------
@@ -158,6 +162,17 @@ export default function App() {
     });
 
     applyState(next);
+  }
+
+  function addLocalPlayer(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const newPlayer: Player = {
+      id: crypto.randomUUID(),
+      name: trimmed,
+      ready: false,
+    };
+    setPlayers((ps) => [...ps, newPlayer]);
   }
 
   // --------- ONLINE MODE ----------
@@ -239,7 +254,9 @@ export default function App() {
   }
 
   // --------- GAME LOGIC ----------
-  const allReady = players.length >= 3 && players.every((p) => p.ready);
+  const allReady = isOnline
+    ? players.length >= 3 && players.every((p) => p.ready)
+    : players.length >= 3; // local: only require 3+ players
 
   function toggleReady(id: string) {
     const updatedPlayers = players.map((p) =>
@@ -262,20 +279,33 @@ export default function App() {
       defaultCategories[0];
     const secret = customWord?.trim() || cat.words[rand(cat.words.length)];
 
-    // 🔹 Random first player
+    // random starting player index
     const startingIndex = rand(players.length);
 
-    const next = buildState({
-      stage: "game",
-      players: roles,
-      round: { categoryId: cat.id, secretWord: secret },
-      turnIndex: startingIndex,
-      wordHistory: [],
-      votes: {},
-    });
-
-    applyState(next);
-    if (isOnline) pushState(next);
+    if (isOnline) {
+      const next = buildState({
+        stage: "game",
+        players: roles,
+        round: { categoryId: cat.id, secretWord: secret },
+        turnIndex: startingIndex,
+        wordHistory: [],
+        votes: {},
+      });
+      applyState(next);
+      pushState(next);
+    } else {
+      // local: go into pass-and-play role reveal flow
+      setLocalRoleIndex(0);
+      const next = buildState({
+        stage: "localRoles",
+        players: roles,
+        round: { categoryId: cat.id, secretWord: secret },
+        turnIndex: startingIndex,
+        wordHistory: [],
+        votes: {},
+      });
+      applyState(next);
+    }
   }
 
   function submitWord(word: string) {
@@ -298,9 +328,16 @@ export default function App() {
   }
 
   function castVote(targetId: string) {
-    if (!myPlayerId) return;
+    if (!myPlayerId && isOnline) return;
 
-    // 1 vote per player: overwrite your previous vote
+    if (!isOnline) {
+      // local: just store a single "group vote" for visualization
+      const newVotes: VotesMap = { group: targetId };
+      setVotes(newVotes);
+      return;
+    }
+
+    // 1 vote per player online: overwrite your previous vote
     const newVotes: VotesMap = {
       ...votes,
       [myPlayerId]: targetId,
@@ -365,6 +402,18 @@ export default function App() {
             onStart={startGame}
             allReady={allReady}
             isHost={isHost}
+            isOnline={isOnline}
+            onAddLocalPlayer={isOnline ? undefined : addLocalPlayer}
+          />
+        )}
+
+        {stage === "localRoles" && round && (
+          <LocalRoleReveal
+            players={players}
+            round={round}
+            localRoleIndex={localRoleIndex}
+            setLocalRoleIndex={setLocalRoleIndex}
+            onDone={() => setStage("game")}
           />
         )}
 
@@ -379,6 +428,7 @@ export default function App() {
             wordHistory={wordHistory}
             votes={votes}
             onReveal={endRound}
+            isOnline={isOnline}
           />
         )}
 
@@ -518,6 +568,8 @@ function Lobby({
   onStart,
   allReady,
   isHost,
+  isOnline,
+  onAddLocalPlayer,
 }: {
   roomCode: string;
   players: Player[];
@@ -526,9 +578,12 @@ function Lobby({
   onStart: (categoryId?: string, customWord?: string) => void;
   allReady: boolean;
   isHost: boolean;
+  isOnline: boolean;
+  onAddLocalPlayer?: (name: string) => void;
 }) {
   const [categoryId, setCategoryId] = useState("random");
   const [customWord, setCustomWord] = useState("");
+  const [newPlayerName, setNewPlayerName] = useState("");
 
   return (
     <div className="rounded-3xl p-6 bg-zinc-800/50 border border-zinc-700">
@@ -543,7 +598,7 @@ function Lobby({
         {/* Players list */}
         <div className="md:col-span-2">
           <h3 className="font-semibold mb-2">Players</h3>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-4">
             {players.map((p) => (
               <div
                 key={p.id}
@@ -553,9 +608,9 @@ function Lobby({
               >
                 <div className="font-semibold truncate">{p.name}</div>
                 <div className="text-xs opacity-70">
-                  {p.ready ? "Ready" : "Not ready"} {p.id === myPlayerId && "(you)"}
+                  {p.ready ? "Ready" : "Not ready"} {p.id === myPlayerId && isOnline && "(you)"}
                 </div>
-                {p.id === myPlayerId && (
+                {isOnline && p.id === myPlayerId && (
                   <button
                     onClick={() => onToggleReady(p.id)}
                     className="mt-2 text-xs px-2 py-1 rounded-lg bg-zinc-200 text-zinc-900"
@@ -566,6 +621,33 @@ function Lobby({
               </div>
             ))}
           </div>
+
+          {/* Local: add players */}
+          {!isOnline && isHost && onAddLocalPlayer && (
+            <div className="rounded-2xl bg-zinc-900/40 border border-zinc-700 p-4">
+              <h4 className="font-semibold mb-2 text-sm">Add local players</h4>
+              <p className="text-xs opacity-70 mb-2">
+                Type each friend&apos;s name and tap Add. Best with 3–8 players.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  className="flex-1 px-3 py-2 bg-zinc-900/60 border border-zinc-700 rounded-xl text-sm"
+                  placeholder="New player name"
+                  value={newPlayerName}
+                  onChange={(e) => setNewPlayerName(e.target.value)}
+                />
+                <button
+                  onClick={() => {
+                    onAddLocalPlayer(newPlayerName);
+                    setNewPlayerName("");
+                  }}
+                  className="px-3 py-2 rounded-xl bg-white text-black text-sm font-semibold"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Round setup – host only */}
@@ -604,7 +686,7 @@ function Lobby({
               Start game
             </button>
             <div className="text-xs opacity-70 mt-2">
-              Need at least 3 players and everyone ready.
+              Need at least 3 players{isOnline && " and everyone ready"}.
             </div>
           </div>
         ) : (
@@ -613,6 +695,111 @@ function Lobby({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function LocalRoleReveal({
+  players,
+  round,
+  localRoleIndex,
+  setLocalRoleIndex,
+  onDone,
+}: {
+  players: Player[];
+  round: RoundConfig;
+  localRoleIndex: number;
+  setLocalRoleIndex: (n: number) => void;
+  onDone: () => void;
+}) {
+  const [phase, setPhase] = useState<"pass" | "show">("pass");
+
+  useEffect(() => {
+    setPhase("pass");
+  }, [localRoleIndex]);
+
+  const player = players[localRoleIndex];
+  if (!player) {
+    onDone();
+    return null;
+  }
+
+  const isLast = localRoleIndex === players.length - 1;
+
+  const handleNext = () => {
+    if (isLast) {
+      onDone();
+    } else {
+      setLocalRoleIndex(localRoleIndex + 1);
+    }
+  };
+
+  return (
+    <div className="rounded-3xl p-6 bg-zinc-800/60 border border-zinc-700 max-w-xl mx-auto mt-8">
+      {phase === "pass" && (
+        <>
+          <h2 className="text-2xl font-bold mb-3 text-center">Pass the device</h2>
+          <p className="text-sm opacity-80 mb-6 text-center">
+            Hand the phone to <span className="font-semibold">{player.name}</span> without anyone
+            else looking.
+          </p>
+          <button
+            onClick={() => setPhase("show")}
+            className="w-full py-3 rounded-2xl bg-white text-black font-semibold"
+          >
+            Ready? Show {player.name}&apos;s role
+          </button>
+        </>
+      )}
+
+      {phase === "show" && (
+        <>
+          <h2 className="text-2xl font-bold mb-3 text-center">Your role</h2>
+          <p className="text-sm opacity-80 mb-4 text-center">
+            Hi <span className="font-semibold">{player.name}</span>, only you should see this.
+          </p>
+          <div className="rounded-2xl bg-zinc-900/80 border border-zinc-700 p-4 mb-4 text-center">
+            {player.isImposter ? (
+              <>
+                <div className="text-sm uppercase tracking-wide opacity-70 mb-1">
+                  You are the
+                </div>
+                <div className="text-3xl font-black text-rose-300 mb-2">IMPOSTER</div>
+                <div className="text-sm opacity-80">
+                  You <span className="font-semibold">do NOT</span> know the secret word. Listen
+                  carefully and try to blend in.
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-sm uppercase tracking-wide opacity-70 mb-1">
+                  You know the secret word
+                </div>
+                <div className="text-3xl font-black text-emerald-300 mb-2">
+                  {round.secretWord}
+                </div>
+                <div className="text-sm opacity-80">
+                  Give one-word clues that are helpful, but not too obvious.
+                </div>
+              </>
+            )}
+          </div>
+          <p className="text-xs opacity-70 mb-4 text-center">
+            Memorize this, then tap below and pass the phone face-down.
+          </p>
+          <button
+            onClick={handleNext}
+            className="w-full py-3 rounded-2xl bg-white text-black font-semibold mb-2"
+          >
+            {isLast ? "Done – go to game" : "Hide and pass to next player"}
+          </button>
+          {!isLast && (
+            <div className="text-xs opacity-60 text-center">
+              Next up: <span className="font-semibold">{players[localRoleIndex + 1].name}</span>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -627,6 +814,7 @@ function Game({
   wordHistory,
   votes,
   onReveal,
+  isOnline,
 }: {
   players: Player[];
   myPlayerId: string;
@@ -637,9 +825,10 @@ function Game({
   wordHistory: { name: string; word: string }[];
   votes: VotesMap;
   onReveal: () => void;
+  isOnline: boolean;
 }) {
-  const me = players.find((p) => p.id === myPlayerId)!;
-  const mySeesSecret = !me.isImposter;
+  const me = isOnline ? players.find((p) => p.id === myPlayerId) : undefined;
+  const mySeesSecret = !!(isOnline && me && !me.isImposter);
   const [word, setWord] = useState("");
   const startingPlayer = players[turnIndex];
 
@@ -651,22 +840,24 @@ function Game({
     return counts;
   }, [votes]);
 
-  const totalVotes = Object.keys(votes).length;
-  const requiredVotes = useMemo(() => {
-    if (players.length <= 3) {
-      // 3 players → 2 votes
-      return 2;
-    }
-    // 4+ players → 75% of players, rounded up
-    return Math.ceil(players.length * 0.75);
-  }, [players.length]);
+  let canReveal = true;
+  let remainingVotes = 0;
+  let requiredVotes = 0;
 
-  const canReveal = totalVotes >= requiredVotes;
-  const remainingVotes = Math.max(requiredVotes - totalVotes, 0);
+  if (isOnline) {
+    const totalVotes = Object.keys(votes).length;
+    if (players.length <= 3) {
+      requiredVotes = 2;
+    } else {
+      requiredVotes = Math.ceil(players.length * 0.75);
+    }
+    canReveal = totalVotes >= requiredVotes;
+    remainingVotes = Math.max(requiredVotes - totalVotes, 0);
+  }
 
   return (
     <div className="grid md:grid-cols-3 gap-6">
-      {/* Left side: info & (hidden) clue input */}
+      {/* Left side */}
       <div className="md:col-span-2 rounded-3xl p-6 bg-zinc-800/50 border border-zinc-700">
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -674,17 +865,30 @@ function Game({
             <div className="text-lg font-semibold capitalize">{round.categoryId}</div>
           </div>
           <div className="text-right">
-            <div className="text-xs opacity-70">Your role</div>
-            <div className="text-lg font-semibold">
-              {mySeesSecret ? "Knower" : "Imposter"}
-            </div>
+            {isOnline ? (
+              <>
+                <div className="text-xs opacity-70">Your role</div>
+                <div className="text-lg font-semibold">
+                  {mySeesSecret ? "Knower" : "Imposter"}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-xs opacity-70">Mode</div>
+                <div className="text-lg font-semibold">Pass-and-play</div>
+              </>
+            )}
           </div>
         </div>
 
         <div className="rounded-2xl bg-zinc-900/60 border border-zinc-700 p-4 mb-4">
           <div className="text-sm opacity-70">Secret word</div>
           <div className="text-2xl font-black tracking-tight">
-            {mySeesSecret ? round.secretWord : "???"}
+            {isOnline
+              ? mySeesSecret
+                ? round.secretWord
+                : "???"
+              : "Shown privately during role reveal"}
           </div>
         </div>
 
@@ -698,7 +902,7 @@ function Game({
           </div>
         )}
 
-        {/* IRL mode explanation (no text input) */}
+        {/* IRL instructions */}
         <div className="rounded-2xl bg-zinc-900/40 border border-zinc-700 p-4 mb-3">
           <div className="text-sm opacity-80">
             Say your one-word clue out loud on your turn. No typing needed in this version.
@@ -734,7 +938,7 @@ function Game({
         </div>
       </div>
 
-      {/* Right side: votes (and clues only if present) */}
+      {/* Right side: votes (and clues if present) */}
       <div className="rounded-3xl p-6 bg-zinc-800/30 border border-zinc-700">
         {wordHistory.length > 0 && (
           <>
@@ -757,8 +961,9 @@ function Game({
 
         <h4 className="font-semibold mb-2">Vote</h4>
         <div className="text-xs opacity-70 mb-2">
-          Tap once to cast your vote. You only get one vote; tapping another player will move your
-          vote. The game can reveal once enough players have voted.
+          {isOnline
+            ? "Tap once to cast your vote. You only get one vote; tapping another player will move your vote."
+            : "Tap who you think is the imposter to track your group’s choice, then hit Reveal when you’re ready."}
         </div>
         <div className="grid grid-cols-2 gap-2">
           {players.map((p) => (
@@ -774,18 +979,20 @@ function Game({
         </div>
         <button
           onClick={onReveal}
-          disabled={!canReveal}
+          disabled={isOnline && !canReveal}
           className={`mt-4 w-full py-2 rounded-2xl font-semibold ${
-            canReveal
+            !isOnline || canReveal
               ? "bg-white text-black"
               : "bg-zinc-700 text-zinc-400 cursor-not-allowed"
           }`}
         >
-          {canReveal
+          {!isOnline
+            ? "Reveal"
+            : canReveal
             ? "Reveal"
             : remainingVotes > 0
-              ? `Waiting for ${remainingVotes} more vote${remainingVotes === 1 ? "" : "s"}…`
-              : "Waiting for votes…"}
+            ? `Waiting for ${remainingVotes} more vote${remainingVotes === 1 ? "" : "s"}…`
+            : "Waiting for votes…"}
         </button>
       </div>
     </div>
