@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { supabase } from "./supabaseClient";
+import { supabase } from "./supabaseClient.ts";
 import "./style.css";
 
 // ---- Utility helpers ----
@@ -415,7 +415,7 @@ function Landing({
         </button>
         <button
           onClick={onHostOnline}
-          disabled!={!onlineAvailable}
+          disabled={!onlineAvailable}
           className={`w-full py-3 rounded-2xl font-semibold transition ${
             onlineAvailable
               ? "bg-emerald-400 text-black hover:bg-emerald-300"
