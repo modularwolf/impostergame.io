@@ -43,6 +43,12 @@ interface SyncedState {
   votes: VotesMap;
 }
 
+interface SessionStats {
+  roomsHosted: number;
+  roundsStarted: number;
+  totalPlayersInRounds: number;
+}
+
 const onlineAvailable = !!supabase;
 
 export default function App() {
@@ -61,6 +67,21 @@ export default function App() {
 
   // Local-only: pass-and-play role reveal index
   const [localRoleIndex, setLocalRoleIndex] = useState(0);
+
+  // How-to-play modal
+  const [showHowTo, setShowHowTo] = useState(false);
+
+  // Session analytics
+  const [stats, setStats] = useState<SessionStats>({
+    roomsHosted: 0,
+    roundsStarted: 0,
+    totalPlayersInRounds: 0,
+  });
+
+  const avgPlayersPerRound =
+    stats.roundsStarted > 0
+      ? (stats.totalPlayersInRounds / stats.roundsStarted).toFixed(1)
+      : "–";
 
   // --- Helpers to build/apply synced state ---
   function buildState(overrides: Partial<SyncedState> = {}): SyncedState {
@@ -141,6 +162,18 @@ export default function App() {
     // hostName preserved so host doesn't have to retype
   }
 
+  function bumpRoomsHosted() {
+    setStats((s) => ({ ...s, roomsHosted: s.roomsHosted + 1 }));
+  }
+
+  function bumpRoundStarted(playerCount: number) {
+    setStats((s) => ({
+      ...s,
+      roundsStarted: s.roundsStarted + 1,
+      totalPlayersInRounds: s.totalPlayersInRounds + playerCount,
+    }));
+  }
+
   // --------- LOCAL MODE ----------
   function createLocalRoom() {
     const code = makeRoomCode();
@@ -162,6 +195,7 @@ export default function App() {
     });
 
     applyState(next);
+    bumpRoomsHosted();
   }
 
   function addLocalPlayer(name: string) {
@@ -201,6 +235,7 @@ export default function App() {
     };
 
     applyState(next);
+    bumpRoomsHosted();
     await pushState(next);
   }
 
@@ -282,6 +317,8 @@ export default function App() {
     // random starting player index
     const startingIndex = rand(players.length);
 
+    bumpRoundStarted(players.length);
+
     if (isOnline) {
       const next = buildState({
         stage: "game",
@@ -328,14 +365,14 @@ export default function App() {
   }
 
   function castVote(targetId: string) {
-    if (!myPlayerId && isOnline) return;
-
     if (!isOnline) {
       // local: just store a single "group vote" for visualization
       const newVotes: VotesMap = { group: targetId };
       setVotes(newVotes);
       return;
     }
+
+    if (!myPlayerId) return;
 
     // 1 vote per player online: overwrite your previous vote
     const newVotes: VotesMap = {
@@ -376,11 +413,53 @@ export default function App() {
     if (isOnline) pushState(next);
   }
 
+  // ---- SHARE: used in Lobby for online rooms ----
+  function getShareInfo(currentRoomCode: string) {
+    const baseUrl =
+      typeof window !== "undefined" && window.location.origin
+        ? window.location.origin
+        : "https://impostergame.io";
+    const url = `${baseUrl}/?room=${currentRoomCode}`;
+    return { url, code: currentRoomCode };
+  }
+
+  async function shareRoom(roomCode: string) {
+    const { url, code } = getShareInfo(roomCode);
+    const text = `Join my Imposter Game room: ${code}`;
+
+    try {
+      if (typeof navigator !== "undefined" && (navigator as any).share) {
+        await (navigator as any).share({
+          title: "Imposter Game",
+          text,
+          url,
+        });
+      } else if (navigator && navigator.clipboard) {
+        await navigator.clipboard.writeText(url);
+        alert("Invite link copied! Paste it into iMessage, WhatsApp, etc.");
+      } else {
+        alert(`Share this link: ${url}`);
+      }
+    } catch (err) {
+      console.error("Share failed:", err);
+      if (navigator && navigator.clipboard) {
+        try {
+          await navigator.clipboard.writeText(url);
+          alert("Invite link copied! Paste it into iMessage, WhatsApp, etc.");
+        } catch {
+          alert(`Share this link: ${url}`);
+        }
+      } else {
+        alert(`Share this link: ${url}`);
+      }
+    }
+  }
+
   // --------- RENDER ----------
   return (
     <div className="min-h-screen bg-gradient-to-b from-zinc-950 to-zinc-900 text-zinc-100 p-6">
       <div className="max-w-5xl mx-auto">
-        <Header isOnline={isOnline} onHome={goHome} />
+        <Header isOnline={isOnline} onHome={goHome} onShowHowTo={() => setShowHowTo(true)} />
 
         {stage === "landing" && (
           <Landing
@@ -404,6 +483,7 @@ export default function App() {
             isHost={isHost}
             isOnline={isOnline}
             onAddLocalPlayer={isOnline ? undefined : addLocalPlayer}
+            onShareRoom={shareRoom}
           />
         )}
 
@@ -436,15 +516,29 @@ export default function App() {
           <Reveal players={players} round={round} votes={votes} onNextRound={nextRound} />
         )}
 
-        <Footer onlineAvailable={onlineAvailable} />
+        <Footer
+          onlineAvailable={onlineAvailable}
+          stats={stats}
+          avgPlayersPerRound={avgPlayersPerRound}
+        />
       </div>
+
+      {showHowTo && <HowToPlayModal onClose={() => setShowHowTo(false)} />}
     </div>
   );
 }
 
 // ---------- PRESENTATION COMPONENTS ----------
 
-function Header({ isOnline, onHome }: { isOnline: boolean; onHome: () => void }) {
+function Header({
+  isOnline,
+  onHome,
+  onShowHowTo,
+}: {
+  isOnline: boolean;
+  onHome: () => void;
+  onShowHowTo: () => void;
+}) {
   return (
     <div className="flex items-center justify-between mb-6">
       <button
@@ -455,9 +549,20 @@ function Header({ isOnline, onHome }: { isOnline: boolean; onHome: () => void })
         <h1 className="text-3xl md:text-4xl font-black tracking-tight cursor-pointer hover:text-emerald-300 transition">
           Imposter Game
         </h1>
+        <p className="text-xs md:text-sm opacity-70 mt-1">
+          One-word clue party game · TikTok-ready
+        </p>
       </button>
-      <div className="text-xs md:text-sm opacity-70">
-        {isOnline ? "Online mode" : "Local mode"}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={onShowHowTo}
+          className="text-xs md:text-sm px-3 py-1 rounded-full border border-zinc-600 bg-zinc-900/70 hover:bg-zinc-800 transition"
+        >
+          How to play
+        </button>
+        <div className="text-xs md:text-sm opacity-70">
+          {isOnline ? "Online mode" : "Local mode"}
+        </div>
       </div>
     </div>
   );
@@ -482,17 +587,25 @@ function Landing({
   const [joinName, setJoinName] = useState("");
 
   return (
-    <div className="grid gap-6 md:grid-cols-2">
-      {/* Host card */}
-      <div className="rounded-3xl p-6 bg-zinc-800/50 border border-zinc-700 shadow-xl">
-        <h2 className="text-2xl font-bold mb-2">Play with friends in seconds</h2>
-        <p className="opacity-80 mb-4">
-          Create a room, pick a secret word, and try to spot the one friend who has no idea what
-          you're talking about.
+    <div className="grid gap-6 md:grid-cols-[1.4fr,1fr]">
+      {/* Hero / host card */}
+      <div className="rounded-3xl p-6 bg-zinc-900/70 border border-zinc-700 shadow-xl">
+        <h2 className="text-2xl md:text-3xl font-bold mb-2">
+          Play the TikTok imposter game with your friends
+        </h2>
+        <p className="opacity-80 mb-4 text-sm md:text-base">
+          Everyone gets a secret word… except the imposter. Go around with one-word clues,
+          call out sus answers, and vote to catch the fake.
         </p>
+        <ul className="text-xs md:text-sm opacity-80 mb-4 list-disc pl-5 space-y-1">
+          <li>Perfect for living rooms, game nights, and pre-game hangs</li>
+          <li>Works on one phone (pass-and-play) or online with room codes</li>
+          <li>No login, no ads, just vibes</li>
+        </ul>
+
         <label className="text-sm opacity-80">Your name (host)</label>
         <input
-          className="w-full mt-1 mb-4 px-3 py-2 bg-zinc-900/60 border border-zinc-700 rounded-xl"
+          className="w-full mt-1 mb-4 px-3 py-2 bg-zinc-950/80 border border-zinc-700 rounded-xl"
           placeholder="Your name"
           value={hostName}
           onChange={(e) => setHostName(e.target.value)}
@@ -501,7 +614,7 @@ function Landing({
           onClick={onCreateLocal}
           className="w-full py-3 rounded-2xl bg-white text-black font-semibold hover:opacity-90 transition mb-2"
         >
-          Local pass-and-play
+          Start local game
         </button>
         <button
           onClick={onHostOnline}
@@ -522,10 +635,10 @@ function Landing({
       </div>
 
       {/* Join card */}
-      <div className="rounded-3xl p-6 bg-zinc-800/30 border border-zinc-700">
+      <div className="rounded-3xl p-6 bg-zinc-800/40 border border-zinc-700">
         <h3 className="text-xl font-semibold mb-2">Join a room</h3>
         <p className="text-sm opacity-80 mb-3">
-          Enter your name and the room code shared by your friend.
+          Your friend hosts, shares a code or link, and you drop in.
         </p>
 
         <label className="text-sm opacity-80">Your name</label>
@@ -570,6 +683,7 @@ function Lobby({
   isHost,
   isOnline,
   onAddLocalPlayer,
+  onShareRoom,
 }: {
   roomCode: string;
   players: Player[];
@@ -580,6 +694,7 @@ function Lobby({
   isHost: boolean;
   isOnline: boolean;
   onAddLocalPlayer?: (name: string) => void;
+  onShareRoom: (roomCode: string) => void;
 }) {
   const [categoryId, setCategoryId] = useState("random");
   const [customWord, setCustomWord] = useState("");
@@ -587,11 +702,21 @@ function Lobby({
 
   return (
     <div className="rounded-3xl p-6 bg-zinc-800/50 border border-zinc-700">
-      <div className="flex items-center justify-between">
-        <div className="text-sm opacity-80">Room</div>
-        <div className="font-mono text-lg bg-zinc-900/60 px-3 py-1 rounded-xl border border-zinc-700">
-          {roomCode}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <div className="text-sm opacity-80">Room</div>
+          <div className="font-mono text-lg bg-zinc-900/60 px-3 py-1 rounded-xl border border-zinc-700 inline-block">
+            {roomCode}
+          </div>
         </div>
+        {isOnline && (
+          <button
+            onClick={() => onShareRoom(roomCode)}
+            className="text-xs md:text-sm px-3 py-1 rounded-full border border-emerald-500/70 bg-emerald-500/10 hover:bg-emerald-500/20 transition"
+          >
+            Share invite link
+          </button>
+        )}
       </div>
 
       <div className="grid md:grid-cols-3 gap-6 mt-6">
@@ -1090,13 +1215,74 @@ function Reveal({
   );
 }
 
-function Footer({ onlineAvailable }: { onlineAvailable: boolean }) {
+function Footer({
+  onlineAvailable,
+  stats,
+  avgPlayersPerRound,
+}: {
+  onlineAvailable: boolean;
+  stats: SessionStats;
+  avgPlayersPerRound: string;
+}) {
   return (
     <div className="text-xs opacity-60 mt-8 text-center space-y-1">
       <div>Built as a prototype party game. No accounts, no chat, just vibes.</div>
       {!onlineAvailable && (
         <div>Online rooms will unlock after Supabase is configured.</div>
       )}
+      <div className="flex justify-center gap-4 mt-2 text-[11px] text-zinc-400">
+        <span>Rooms hosted: {stats.roomsHosted}</span>
+        <span>Rounds played: {stats.roundsStarted}</span>
+        <span>Avg players/round: {avgPlayersPerRound}</span>
+      </div>
+    </div>
+  );
+}
+
+function HowToPlayModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
+      <div className="max-w-lg w-full rounded-3xl bg-zinc-900 border border-zinc-700 p-6 shadow-2xl">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xl font-bold">How to play Imposter Game</h2>
+          <button
+            onClick={onClose}
+            className="text-xs px-2 py-1 rounded-full bg-zinc-800 hover:bg-zinc-700"
+          >
+            Close
+          </button>
+        </div>
+        <ol className="space-y-2 text-sm opacity-90 mb-4">
+          <li>
+            <b>1. Choose your mode.</b> Host taps <b>Start local game</b> (one phone, pass it
+            around) or <b>Host online room</b> (everyone on their own device).
+          </li>
+          <li>
+            <b>2. Add players.</b> Each friend joins the lobby with their name. Online players join
+            using a code or invite link.
+          </li>
+          <li>
+            <b>3. Secret word.</b> The host picks a category or custom word. Everyone except the
+            imposter sees it.
+          </li>
+          <li>
+            <b>4. Give one-word clues.</b> Go in a circle. Each player says exactly one word out
+            loud that relates to the secret.
+          </li>
+          <li>
+            <b>5. Vote the imposter out.</b> After at least one round of clues, everyone votes on
+            who they think is faking it.
+          </li>
+          <li>
+            <b>6. Reveal.</b> The app shows the secret word and the true imposter. Then you can
+            start a new round with a new imposter.
+          </li>
+        </ol>
+        <p className="text-xs opacity-70">
+          Tip: For TikTok, prop the phone up so the secret word and votes are visible, and record
+          the chaos as everyone argues about who&apos;s sus.
+        </p>
+      </div>
     </div>
   );
 }
