@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { supabase } from "./supabaseClient"; // MUST exist
+import { supabase } from "./supabaseClient.ts"; // MUST exist
 import "./style.css";
 
 // ---- Utility helpers ----
