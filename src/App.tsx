@@ -122,6 +122,21 @@ export default function App() {
     };
   }, [isOnline, roomCode]);
 
+  // --------- NAV / RESET ----------
+  function goHome() {
+    setStage("landing");
+    setRoomCode("");
+    setPlayers([]);
+    setRound(null);
+    setWordHistory([]);
+    setVotes({});
+    setTurnIndex(0);
+    setIsOnline(false);
+    setIsHost(false);
+    setMyPlayerId("");
+    // keep hostName so host doesn't have to retype each time
+  }
+
   // --------- LOCAL MODE ----------
   function createLocalRoom() {
     const code = makeRoomCode();
@@ -247,11 +262,14 @@ export default function App() {
       defaultCategories[0];
     const secret = customWord?.trim() || cat.words[rand(cat.words.length)];
 
+    // 🔹 Random first player
+    const startingIndex = rand(players.length);
+
     const next = buildState({
       stage: "game",
       players: roles,
       round: { categoryId: cat.id, secretWord: secret },
-      turnIndex: 0,
+      turnIndex: startingIndex,
       wordHistory: [],
       votes: {},
     });
@@ -325,7 +343,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-zinc-950 to-zinc-900 text-zinc-100 p-6">
       <div className="max-w-5xl mx-auto">
-        <Header isOnline={isOnline} />
+        <Header isOnline={isOnline} onHome={goHome} />
 
         {stage === "landing" && (
           <Landing
@@ -376,10 +394,18 @@ export default function App() {
 
 // ---------- PRESENTATION COMPONENTS ----------
 
-function Header({ isOnline }: { isOnline: boolean }) {
+function Header({ isOnline, onHome }: { isOnline: boolean; onHome: () => void }) {
   return (
     <div className="flex items-center justify-between mb-6">
-      <h1 className="text-3xl md:text-4xl font-black tracking-tight">Imposter Game</h1>
+      <button
+        onClick={onHome}
+        className="text-left focus:outline-none"
+        aria-label="Go to home"
+      >
+        <h1 className="text-3xl md:text-4xl font-black tracking-tight cursor-pointer hover:text-emerald-300 transition">
+          Imposter Game
+        </h1>
+      </button>
       <div className="text-xs md:text-sm opacity-70">
         {isOnline ? "Online mode" : "Local mode"}
       </div>
@@ -615,7 +641,7 @@ function Game({
   const me = players.find((p) => p.id === myPlayerId)!;
   const mySeesSecret = !me.isImposter;
   const [word, setWord] = useState("");
-  const currentPlayer = players[turnIndex];
+  const startingPlayer = players[turnIndex];
 
   const voteCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -624,6 +650,19 @@ function Game({
     });
     return counts;
   }, [votes]);
+
+  const totalVotes = Object.keys(votes).length;
+  const requiredVotes = useMemo(() => {
+    if (players.length <= 3) {
+      // 3 players → 2 votes
+      return 2;
+    }
+    // 4+ players → 75% of players, rounded up
+    return Math.ceil(players.length * 0.75);
+  }, [players.length]);
+
+  const canReveal = totalVotes >= requiredVotes;
+  const remainingVotes = Math.max(requiredVotes - totalVotes, 0);
 
   return (
     <div className="grid md:grid-cols-3 gap-6">
@@ -649,13 +688,23 @@ function Game({
           </div>
         </div>
 
+        {/* First-player banner */}
+        {startingPlayer && (
+          <div className="rounded-2xl bg-emerald-500/10 border border-emerald-500/50 p-4 mb-3">
+            <div className="text-sm opacity-80">
+              <span className="font-semibold">{startingPlayer.name}</span> starts! They give the
+              first one-word clue.
+            </div>
+          </div>
+        )}
+
         {/* IRL mode explanation (no text input) */}
         <div className="rounded-2xl bg-zinc-900/40 border border-zinc-700 p-4 mb-3">
           <div className="text-sm opacity-80">
             Say your one-word clue out loud on your turn. No typing needed in this version.
           </div>
           <div className="text-xs opacity-60 mt-1">
-            Turn order: you&apos;ll go when it&apos;s your turn in the circle.
+            Go around the circle in order. When everyone has shared clues, vote below.
           </div>
         </div>
 
@@ -663,9 +712,6 @@ function Game({
         <div className="rounded-2xl bg-zinc-900/40 border border-zinc-700 p-4 hidden">
           <div className="text-sm opacity-70 mb-2">
             Give exactly one word on your turn (online text mode).
-          </div>
-          <div className="text-xs opacity-70 mb-2">
-            Current turn: <b>{currentPlayer?.name}</b>
           </div>
           <div className="flex gap-2">
             <input
@@ -712,7 +758,7 @@ function Game({
         <h4 className="font-semibold mb-2">Vote</h4>
         <div className="text-xs opacity-70 mb-2">
           Tap once to cast your vote. You only get one vote; tapping another player will move your
-          vote.
+          vote. The game can reveal once enough players have voted.
         </div>
         <div className="grid grid-cols-2 gap-2">
           {players.map((p) => (
@@ -728,9 +774,18 @@ function Game({
         </div>
         <button
           onClick={onReveal}
-          className="mt-4 w-full py-2 rounded-2xl bg-white text-black font-semibold"
+          disabled={!canReveal}
+          className={`mt-4 w-full py-2 rounded-2xl font-semibold ${
+            canReveal
+              ? "bg-white text-black"
+              : "bg-zinc-700 text-zinc-400 cursor-not-allowed"
+          }`}
         >
-          Reveal
+          {canReveal
+            ? "Reveal"
+            : remainingVotes > 0
+              ? `Waiting for ${remainingVotes} more vote${remainingVotes === 1 ? "" : "s"}…`
+              : "Waiting for votes…"}
         </button>
       </div>
     </div>
