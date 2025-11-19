@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabaseClient.ts";
 import "./style.css";
+import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/react"
+
 
 // ---- Utility helpers ----
 const rand = (n: number) => Math.floor(Math.random() * n);
@@ -521,6 +524,8 @@ export default function App() {
           stats={stats}
           avgPlayersPerRound={avgPlayersPerRound}
         />
+        <Analytics />
+        <SpeedInsights/>
       </div>
 
       {showHowTo && <HowToPlayModal onClose={() => setShowHowTo(false)} />}
