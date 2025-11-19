@@ -1,16 +1,16 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./supabaseClient.ts";
 import "./style.css";
+
 
 // ---- Utility helpers ----
 const rand = (n: number) => Math.floor(Math.random() * n);
 const sample = <T,>(arr: T[]) => arr[rand(arr.length)];
-const codeWords = [
-  "MINT", "ORCA", "LAVA", "NOVA", "PIXEL", "QUILL", "ZINC", "EMBER",
-  "JUNO", "LYNX", "MARS", "ONYX", "QUARK", "RUNE", "SAGE", "VOLT",
-];
+// For short, shareable room codes like "AB3K"
+const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/1 to avoid confusion
+
 function makeRoomCode() {
-  return Array.from({ length: 4 }, () => sample(codeWords)).join("-");
+  return Array.from({ length: 4 }, () => CODE_CHARS[rand(CODE_CHARS.length)]).join("");
 }
 
 // ---- Mock categories ----
@@ -59,6 +59,8 @@ export default function App() {
 
   const [isOnline, setIsOnline] = useState(false);
   const [isHost, setIsHost] = useState(false);
+  const remoteApplyingRef = useRef(false);
+
 
   function applyState(s: SyncedState) {
     setStage(s.stage);
@@ -72,8 +74,9 @@ export default function App() {
 
   // ---- Sync to Supabase (host only, only if configured) ----
   useEffect(() => {
-    if (!onlineAvailable || !isOnline || !isHost || !roomCode || !supabase) return;
-
+    if (!onlineAvailable || !isOnline || !roomCode || !supabase) return;
+    if (remoteApplyingRef.current) return; // 👈 don’t write when applying remote state
+  
     const synced: SyncedState = {
       stage,
       roomCode,
@@ -83,19 +86,30 @@ export default function App() {
       wordHistory,
       votes,
     };
-
+  
     supabase
       .from("rooms")
       .upsert({ code: roomCode, state: synced })
       .then(({ error }) => {
         if (error) console.error("Supabase upsert error:", error);
       });
-  }, [stage, players, round, turnIndex, wordHistory, votes, isOnline, isHost, roomCode]);
+  }, [
+    stage,
+    players,
+    round,
+    turnIndex,
+    wordHistory,
+    votes,
+    isOnline,
+    roomCode,
+    remoteApplyingRef,
+  ]);
+  
 
   // ---- Subscribe to Supabase realtime (clients) ----
   useEffect(() => {
     if (!onlineAvailable || !isOnline || !roomCode || !supabase) return;
-
+  
     const channel = supabase
       .channel(`room:${roomCode}`)
       .on(
@@ -109,15 +123,20 @@ export default function App() {
         (payload: any) => {
           if (!payload.new?.state) return;
           const newState = payload.new.state as SyncedState;
-          if (!isHost) applyState(newState);
+  
+          // Mark that we're applying remote data so the writer effect doesn't echo it back
+          remoteApplyingRef.current = true;
+          applyState(newState);
+          remoteApplyingRef.current = false;
         }
       )
       .subscribe();
-
+  
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [isOnline, roomCode, isHost]);
+  }, [isOnline, roomCode, remoteApplyingRef]);
+  
 
   // --------- LOCAL MODE ----------
   function createLocalRoom() {
@@ -376,7 +395,7 @@ function Landing({
         </p>
         <input
           className="w-full mt-1 mb-4 px-3 py-2 bg-zinc-900/60 border border-zinc-700 rounded-xl font-mono uppercase"
-          placeholder="MINT-ORCA-LAVA-VOLT"
+          placeholder="AB3K"
           value={joinCode}
           onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
         />
