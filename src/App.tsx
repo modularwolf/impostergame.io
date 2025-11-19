@@ -1,19 +1,15 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "./supabaseClient.ts";
+import React, { useEffect, useMemo, useState } from "react";
+import { supabase } from "./supabaseClient";
 import "./style.css";
-
 
 // ---- Utility helpers ----
 const rand = (n: number) => Math.floor(Math.random() * n);
-const sample = <T,>(arr: T[]) => arr[rand(arr.length)];
-// For short, shareable room codes like "AB3K"
-const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/1 to avoid confusion
 
+const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/1 to avoid confusion
 function makeRoomCode() {
   return Array.from({ length: 4 }, () => CODE_CHARS[rand(CODE_CHARS.length)]).join("");
 }
 
-// ---- Mock categories ----
 const defaultCategories = [
   { id: "animals", label: "Animals", words: ["giraffe", "lion", "otter", "falcon", "horse"] },
   { id: "foods", label: "Foods", words: ["pizza", "sushi", "taco", "ramen", "donut"] },
@@ -59,8 +55,20 @@ export default function App() {
 
   const [isOnline, setIsOnline] = useState(false);
   const [isHost, setIsHost] = useState(false);
-  const remoteApplyingRef = useRef(false);
 
+  // --- Helpers to build/apply synced state ---
+  function buildState(overrides: Partial<SyncedState> = {}): SyncedState {
+    return {
+      stage,
+      roomCode,
+      players,
+      round,
+      turnIndex,
+      wordHistory,
+      votes,
+      ...overrides,
+    };
+  }
 
   function applyState(s: SyncedState) {
     setStage(s.stage);
@@ -72,44 +80,21 @@ export default function App() {
     setVotes(s.votes);
   }
 
-  // ---- Sync to Supabase (host only, only if configured) ----
-  useEffect(() => {
-    if (!onlineAvailable || !isOnline || !roomCode || !supabase) return;
-    if (remoteApplyingRef.current) return; // 👈 don’t write when applying remote state
-  
-    const synced: SyncedState = {
-      stage,
-      roomCode,
-      players,
-      round,
-      turnIndex,
-      wordHistory,
-      votes,
-    };
-  
-    supabase
-      .from("rooms")
-      .upsert({ code: roomCode, state: synced })
-      .then(({ error }) => {
-        if (error) console.error("Supabase upsert error:", error);
-      });
-  }, [
-    stage,
-    players,
-    round,
-    turnIndex,
-    wordHistory,
-    votes,
-    isOnline,
-    roomCode,
-    remoteApplyingRef,
-  ]);
-  
+  async function pushState(next: SyncedState) {
+    if (!onlineAvailable || !isOnline || !supabase) return;
+    const { error } = await supabase.from("rooms").upsert({
+      code: next.roomCode,
+      state: next,
+    });
+    if (error) {
+      console.error("Supabase upsert error:", error);
+    }
+  }
 
-  // ---- Subscribe to Supabase realtime (clients) ----
+  // ---- Subscribe to Supabase realtime (everyone) ----
   useEffect(() => {
     if (!onlineAvailable || !isOnline || !roomCode || !supabase) return;
-  
+
     const channel = supabase
       .channel(`room:${roomCode}`)
       .on(
@@ -123,55 +108,55 @@ export default function App() {
         (payload: any) => {
           if (!payload.new?.state) return;
           const newState = payload.new.state as SyncedState;
-  
-          // Mark that we're applying remote data so the writer effect doesn't echo it back
-          remoteApplyingRef.current = true;
           applyState(newState);
-          remoteApplyingRef.current = false;
         }
       )
       .subscribe();
-  
+
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [isOnline, roomCode, remoteApplyingRef]);
-  
+  }, [isOnline, roomCode]);
 
   // --------- LOCAL MODE ----------
   function createLocalRoom() {
     const code = makeRoomCode();
-    setRoomCode(code);
-
     const id = crypto.randomUUID();
     const host: Player = { id, name: hostName || "Host", ready: false };
 
-    setPlayers([host]);
-    setMyPlayerId(id);
     setIsOnline(false);
     setIsHost(true);
-    setStage("lobby");
+    setMyPlayerId(id);
+
+    const next = buildState({
+      stage: "lobby",
+      roomCode: code,
+      players: [host],
+      round: null,
+      turnIndex: 0,
+      wordHistory: [],
+      votes: {},
+    });
+
+    applyState(next);
   }
 
   // --------- ONLINE MODE ----------
   async function hostOnlineRoom() {
     if (!onlineAvailable || !supabase) {
-      alert("Online play isn’t configured yet. Use Local Mode for now.");
+      alert("Online play isn’t configured yet.");
       return;
     }
 
     const code = makeRoomCode();
-    setRoomCode(code);
-
     const id = crypto.randomUUID();
     const host: Player = { id, name: hostName || "Host", ready: false };
 
-    setPlayers([host]);
-    setMyPlayerId(id);
     setIsOnline(true);
     setIsHost(true);
+    setMyPlayerId(id);
 
-    const newState: SyncedState = {
+    const next: SyncedState = {
       stage: "lobby",
       roomCode: code,
       players: [host],
@@ -181,91 +166,147 @@ export default function App() {
       votes: {},
     };
 
-    const { error } = await supabase.from("rooms").upsert({ code, state: newState });
-    if (error) console.error("Supabase upsert error:", error);
-    applyState(newState);
+    applyState(next);
+    await pushState(next);
   }
 
   async function joinOnlineRoom(code: string) {
     if (!onlineAvailable || !supabase) {
-      alert("Online play isn’t configured yet. Use Local Mode for now.");
+      alert("Online play isn’t configured yet.");
       return;
     }
 
-    setRoomCode(code);
-    setIsOnline(true);
-    setIsHost(false);
+    const joinCode = code.trim().toUpperCase();
+    if (!joinCode) return;
 
     const myId = crypto.randomUUID();
     setMyPlayerId(myId);
+    setIsOnline(true);
+    setIsHost(false);
 
     const { data, error } = await supabase
       .from("rooms")
       .select("state")
-      .eq("code", code)
+      .eq("code", joinCode)
       .single();
 
     if (!data || error) {
+      console.error(error);
       alert("Room not found.");
       setIsOnline(false);
       return;
     }
 
     const s = data.state as SyncedState;
+    let playersNext = s.players;
 
-    if (!s.players.find((p) => p.id === myId)) {
-      s.players.push({ id: myId, name: hostName || "Player", ready: false });
-      const { error: upErr } = await supabase.from("rooms").upsert({ code, state: s });
-      if (upErr) console.error("Supabase upsert error:", upErr);
+    if (!playersNext.find((p) => p.id === myId)) {
+      playersNext = [
+        ...playersNext,
+        { id: myId, name: hostName || "Player", ready: false },
+      ];
     }
 
-    applyState(s);
+    const next: SyncedState = {
+      ...s,
+      roomCode: joinCode,
+      players: playersNext,
+    };
+
+    applyState(next);
+    await pushState(next);
   }
 
   // --------- GAME LOGIC ----------
   const allReady = players.length >= 3 && players.every((p) => p.ready);
 
   function toggleReady(id: string) {
-    setPlayers((ps) => ps.map((p) => (p.id === id ? { ...p, ready: !p.ready } : p)));
+    const updatedPlayers = players.map((p) =>
+      p.id === id ? { ...p, ready: !p.ready } : p
+    );
+    setPlayers(updatedPlayers);
+
+    if (isOnline) {
+      const next = buildState({ players: updatedPlayers });
+      pushState(next);
+    }
   }
 
   function startGame(categoryId?: string, customWord?: string) {
     const impIndex = rand(players.length);
     const roles = players.map((p, i) => ({ ...p, isImposter: i === impIndex }));
-    setPlayers(roles);
 
-    const cat = defaultCategories.find((c) => c.id === (categoryId || "random")) || defaultCategories[0];
-    const secret = customWord?.trim() || sample(cat.words);
+    const cat =
+      defaultCategories.find((c) => c.id === (categoryId || "random")) ||
+      defaultCategories[0];
+    const secret = customWord?.trim() || cat.words[rand(cat.words.length)];
 
-    setRound({ categoryId: cat.id, secretWord: secret });
-    setTurnIndex(0);
-    setWordHistory([]);
-    setVotes({});
-    setStage("game");
+    const next = buildState({
+      stage: "game",
+      players: roles,
+      round: { categoryId: cat.id, secretWord: secret },
+      turnIndex: 0,
+      wordHistory: [],
+      votes: {},
+    });
+
+    applyState(next);
+    if (isOnline) pushState(next);
   }
 
   function submitWord(word: string) {
     const p = players[turnIndex];
     if (!p) return;
-    setWordHistory((h) => [...h, { name: p.name, word }]);
-    setTurnIndex((i) => (i + 1) % players.length);
+
+    const newHistory = [...wordHistory, { name: p.name, word }];
+    const newTurn = (turnIndex + 1) % players.length;
+
+    setWordHistory(newHistory);
+    setTurnIndex(newTurn);
+
+    if (isOnline) {
+      const next = buildState({
+        wordHistory: newHistory,
+        turnIndex: newTurn,
+      });
+      pushState(next);
+    }
   }
 
   function castVote(name: string) {
-    setVotes((v) => ({ ...v, [name]: (v[name] || 0) + 1 }));
+    const newVotes = { ...votes, [name]: (votes[name] || 0) + 1 };
+    setVotes(newVotes);
+
+    if (isOnline) {
+      const next = buildState({ votes: newVotes });
+      pushState(next);
+    }
   }
 
   function endRound() {
-    setStage("reveal");
+    const next = buildState({ stage: "reveal" });
+    applyState(next);
+    if (isOnline) pushState(next);
   }
 
   function nextRound() {
-    setPlayers((ps) => ps.map((p) => ({ ...p, ready: false, isImposter: undefined })));
-    setRound(null);
-    setWordHistory([]);
-    setVotes({});
-    setTurnIndex(0);
-    setStage("lobby");
+    const resetPlayers = players.map((p) => ({
+      ...p,
+      ready: false,
+      isImposter: undefined,
+    }));
+
+    const next = buildState({
+      stage: "lobby",
+      players: resetPlayers,
+      round: null,
+      wordHistory: [],
+      votes: {},
+      turnIndex: 0,
+    });
+
+    applyState(next);
+    if (isOnline) pushState(next);
   }
 
   // --------- RENDER ----------
@@ -356,7 +397,8 @@ function Landing({
       <div className="rounded-3xl p-6 bg-zinc-800/50 border border-zinc-700 shadow-xl">
         <h2 className="text-2xl font-bold mb-2">Play with friends in seconds</h2>
         <p className="opacity-80 mb-4">
-          Create a room, pick a secret word, and try to spot the one friend who has no idea what you're talking about.
+          Create a room, pick a secret word, and try to spot the one friend who has no idea what
+          you're talking about.
         </p>
         <label className="text-sm opacity-80">Your name</label>
         <input
@@ -373,7 +415,7 @@ function Landing({
         </button>
         <button
           onClick={onHostOnline}
-          disabled={!onlineAvailable}
+          disabled!={!onlineAvailable}
           className={`w-full py-3 rounded-2xl font-semibold transition ${
             onlineAvailable
               ? "bg-emerald-400 text-black hover:bg-emerald-300"
@@ -400,7 +442,7 @@ function Landing({
           onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
         />
         <button
-          onClick={() => onJoinOnline(joinCode.trim())}
+          onClick={() => onJoinOnline(joinCode)}
           disabled={!joinCode.trim() || !onlineAvailable}
           className={`w-full py-3 rounded-2xl font-semibold transition ${
             joinCode.trim() && onlineAvailable
@@ -435,9 +477,6 @@ function Lobby({
   const [categoryId, setCategoryId] = useState("random");
   const [customWord, setCustomWord] = useState("");
 
-  const me = players.find((p) => p.id === myPlayerId);
-  const canToggleMe = !!me;
-
   return (
     <div className="rounded-3xl p-6 bg-zinc-800/50 border border-zinc-700">
       <div className="flex items-center justify-between">
@@ -460,8 +499,7 @@ function Lobby({
               >
                 <div className="font-semibold truncate">{p.name}</div>
                 <div className="text-xs opacity-70">
-                  {p.ready ? "Ready" : "Not ready"}
-                  {p.id === myPlayerId && " (you)"}
+                  {p.ready ? "Ready" : "Not ready"} {p.id === myPlayerId && "(you)"}
                 </div>
                 {p.id === myPlayerId && (
                   <button
@@ -473,11 +511,6 @@ function Lobby({
                 )}
               </div>
             ))}
-            {!canToggleMe && (
-              <div className="text-xs opacity-60">
-                Waiting for you to be added to players…
-              </div>
-            )}
           </div>
         </div>
 
