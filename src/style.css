@@ -1,3 +1,6 @@
-h1, p {
-  font-family: Lato;
+/* You can keep this essentially empty; Tailwind styles come from the CDN */
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
 }
