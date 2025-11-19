@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { supabase } from "./supabaseClient.ts";
+import { supabase } from "./supabaseClient";
 import "./style.css";
 
 // ---- Utility helpers ----
@@ -81,7 +81,8 @@ export default function App() {
   }
 
   async function pushState(next: SyncedState) {
-    if (!onlineAvailable || !isOnline || !supabase) return;
+    // 🔧 FIX: don't gate on isOnline here, only on Supabase existing
+    if (!onlineAvailable || !supabase) return;
     const { error } = await supabase.from("rooms").upsert({
       code: next.roomCode,
       state: next,
@@ -180,9 +181,6 @@ export default function App() {
     if (!joinCode) return;
 
     const myId = crypto.randomUUID();
-    setMyPlayerId(myId);
-    setIsOnline(true);
-    setIsHost(false);
 
     const { data, error } = await supabase
       .from("rooms")
@@ -212,6 +210,10 @@ export default function App() {
       roomCode: joinCode,
       players: playersNext,
     };
+
+    setMyPlayerId(myId);
+    setIsOnline(true);
+    setIsHost(false);
 
     applyState(next);
     await pushState(next);
