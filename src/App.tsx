@@ -14,10 +14,18 @@ function makeRoomCode() {
 }
 
 const defaultCategories = [
-  { id: "animals", label: "Animals", words: ["giraffe", "lion", "otter", "falcon", "horse"] },
-  { id: "foods", label: "Foods", words: ["pizza", "sushi", "taco", "ramen", "donut"] },
-  { id: "heroes", label: "Heroes", words: ["Spiderman", "Iron Man", "Black Widow", "Thor", "Loki"] },
-  { id: "random", label: "Random", words: ["rainbow", "volcano", "spaceship", "headphones", "keyboard"] },
+  { id: "animals", label: "Animals", words: ["giraffe", "lion", "otter", "falcon", "horse", "elephant", "tiger", "penguin", "dolphin", "shark", "koala", "kangaroo", "zebra", "rhinoceros", "hippopotamus", "cheetah", "wolf", "fox", "bear", "panda", "eagle", "owl", "parrot", "crocodile", "turtle", "octopus", "jellyfish", "seahorse", "butterfly", "bee", "gorilla", "camel", "sloth", "rabbit", "squirrel", "peacock", "flamingo", "moose", "deer", "raccoon"] },
+  { id: "foods", label: "Foods", words: ["pizza", "sushi", "taco", "ramen", "donut", "burger", "pasta", "steak", "pancake", "waffle", "burrito", "quesadilla", "lasagna", "salad", "sandwich", "hot dog", "fried chicken", "macaroni", "ice cream", "brownie", "cupcake", "cheesecake", "popcorn", "pretzel", "nachos", "cereal", "omelet", "bacon", "meatball", "dumpling", "curry", "soup", "lobster", "shrimp", "watermelon", "pineapple", "strawberry", "avocado", "cookie", "chocolate"] },
+  { id: "heroes", label: "Heroes & Villains", words: ["Spider-Man", "Iron Man", "Black Widow", "Thor", "Loki", "Batman", "Superman", "Wonder Woman", "Hulk", "Captain America", "Black Panther", "Doctor Strange", "Deadpool", "Wolverine", "Aquaman", "The Flash", "Green Lantern", "Joker", "Harley Quinn", "Thanos", "Venom", "Darth Vader", "Luke Skywalker", "Yoda", "Princess Leia", "Mandalorian", "Shrek", "Elsa", "Buzz Lightyear", "Woody", "Mr. Incredible", "Katniss", "Harry Potter", "Hermione", "Gandalf"] },
+  { id: "movies", label: "Movies & TV", words: ["Titanic", "Jaws", "Frozen", "Avatar", "Jurassic Park", "Toy Story", "The Lion King", "Home Alone", "The Matrix", "Rocky", "Ghostbusters", "Finding Nemo", "The Avengers", "Star Wars", "Harry Potter", "Shrek", "Moana", "Coco", "Encanto", "The Office", "Friends", "Stranger Things", "Wednesday", "Bluey", "SpongeBob", "Scooby-Doo", "The Simpsons", "Game of Thrones", "Breaking Bad", "Top Gun", "Barbie", "Oppenheimer", "Inside Out", "Cars", "The Incredibles"] },
+  { id: "sports", label: "Sports", words: ["football", "basketball", "baseball", "soccer", "golf", "tennis", "volleyball", "hockey", "boxing", "wrestling", "swimming", "surfing", "skiing", "snowboarding", "skateboarding", "gymnastics", "bowling", "fishing", "archery", "karate", "cycling", "running", "rowing", "cricket", "rugby", "lacrosse", "pickleball", "dodgeball", "cheerleading", "weightlifting", "fencing", "horse racing", "table tennis", "billiards", "cornhole"] },
+  { id: "places", label: "Places", words: ["beach", "airport", "school", "hospital", "zoo", "museum", "library", "restaurant", "stadium", "amusement park", "grocery store", "movie theater", "hotel", "campground", "mountain", "desert", "jungle", "island", "farm", "castle", "playground", "aquarium", "mall", "bank", "fire station", "police station", "coffee shop", "gym", "church", "office", "subway", "train station", "water park", "carnival", "barbershop"] },
+  { id: "objects", label: "Household Objects", words: ["toaster", "refrigerator", "microwave", "television", "couch", "lamp", "vacuum", "blender", "coffee maker", "dishwasher", "washing machine", "dryer", "mirror", "pillow", "blanket", "toothbrush", "hairbrush", "shower", "bathtub", "remote control", "clock", "fan", "iron", "mop", "broom", "trash can", "doorbell", "bookshelf", "curtain", "rug", "fork", "spoon", "frying pan", "kettle", "flashlight"] },
+  { id: "jobs", label: "Jobs", words: ["teacher", "doctor", "nurse", "firefighter", "police officer", "chef", "pilot", "soldier", "lawyer", "dentist", "mechanic", "farmer", "photographer", "barber", "cashier", "mail carrier", "lifeguard", "scientist", "engineer", "plumber", "electrician", "veterinarian", "artist", "musician", "actor", "coach", "judge", "astronaut", "detective", "construction worker"] },
+  { id: "games", label: "Video Games", words: ["Minecraft", "Fortnite", "Mario", "Zelda", "Pokémon", "Roblox", "Call of Duty", "Grand Theft Auto", "Among Us", "Sonic", "Halo", "Animal Crossing", "The Sims", "Madden", "FIFA", "NBA 2K", "Rocket League", "Apex Legends", "Overwatch", "Fall Guys", "Pac-Man", "Tetris", "Donkey Kong", "Kirby", "Luigi", "Bowser", "Master Chief", "Kratos", "Link", "Pikachu", "Lara Croft", "Street Fighter", "Mortal Kombat", "Skyrim", "Destiny"] },
+  { id: "music", label: "Music", words: ["guitar", "piano", "drums", "violin", "trumpet", "saxophone", "microphone", "concert", "DJ", "rapper", "singer", "band", "orchestra", "karaoke", "headphones", "playlist", "album", "chorus", "melody", "rhythm", "country", "rock", "hip-hop", "jazz", "classical", "pop", "reggae", "dance", "festival", "record player", "harmonica", "flute", "cello", "banjo", "tambourine"] },
+  { id: "kids", label: "Kids", words: ["playground", "birthday cake", "dinosaur", "unicorn", "pirate", "princess", "robot", "monster", "superhero", "treasure", "balloon", "trampoline", "water slide", "treehouse", "sleepover", "school bus", "lunchbox", "crayon", "building blocks", "teddy bear", "kite", "bubble", "snowman", "tooth fairy", "Santa Claus", "Easter Bunny", "hide-and-seek", "tag", "hopscotch", "roller coaster", "circus", "magic wand", "spaceship", "dragon", "mermaid"] },
+  { id: "random", label: "Random", words: ["rainbow", "volcano", "spaceship", "headphones", "keyboard", "umbrella", "backpack", "elevator", "traffic light", "roller coaster", "campfire", "snowman", "lighthouse", "treasure chest", "robot", "pirate", "ninja", "wizard", "dragon", "unicorn", "tornado", "earthquake", "fireworks", "moon", "satellite", "submarine", "helicopter", "motorcycle", "tractor", "skyscraper", "bridge", "fountain", "maze", "telescope", "compass", "magnet", "battery", "camera", "passport", "suitcase", "crown", "diamond", "ghost", "zombie", "vampire", "snow globe", "time machine", "hot air balloon", "waterfall", "cactus"] },
 ];
 
 // ---- Types ----
@@ -39,11 +47,39 @@ type VotesMap = Record<string, string>;
 interface SyncedState {
   stage: "landing" | "lobby" | "localRoles" | "game" | "reveal";
   roomCode: string;
+  hostPlayerId?: string;
   players: Player[];
   round: RoundConfig | null;
   turnIndex: number;
   wordHistory: { name: string; word: string }[];
   votes: VotesMap;
+  usedWords?: string[];
+}
+
+interface OnlineSession {
+  roomCode: string;
+  playerId: string;
+  playerName: string;
+}
+
+const SESSION_KEY = "impostergame.onlineSession.v2";
+
+function saveOnlineSession(session: OnlineSession) {
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+}
+
+function clearOnlineSession() {
+  localStorage.removeItem(SESSION_KEY);
+}
+
+function readOnlineSession(): OnlineSession | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? (JSON.parse(raw) as OnlineSession) : null;
+  } catch {
+    clearOnlineSession();
+    return null;
+  }
 }
 
 interface SessionStats {
@@ -57,6 +93,8 @@ const onlineAvailable = !!supabase;
 export default function App() {
   const [stage, setStage] = useState<SyncedState["stage"]>("landing");
   const [roomCode, setRoomCode] = useState("");
+  const [hostPlayerId, setHostPlayerId] = useState("");
+  const [usedWords, setUsedWords] = useState<string[]>([]);
   const [hostName, setHostName] = useState("");
   const [players, setPlayers] = useState<Player[]>([]);
   const [round, setRound] = useState<RoundConfig | null>(null);
@@ -67,6 +105,9 @@ export default function App() {
 
   const [isOnline, setIsOnline] = useState(false);
   const [isHost, setIsHost] = useState(false);
+  const [restoringSession, setRestoringSession] = useState(true);
+  const [votePending, setVotePending] = useState(false);
+  const [notice, setNotice] = useState("");
 
   // Local-only: pass-and-play role reveal index
   const [localRoleIndex, setLocalRoleIndex] = useState(0);
@@ -91,11 +132,13 @@ export default function App() {
     return {
       stage,
       roomCode,
+      hostPlayerId,
       players,
       round,
       turnIndex,
       wordHistory,
       votes,
+      usedWords,
       ...overrides,
     };
   }
@@ -103,11 +146,14 @@ export default function App() {
   function applyState(s: SyncedState) {
     setStage(s.stage);
     setRoomCode(s.roomCode);
+    setHostPlayerId(s.hostPlayerId || "");
+    setUsedWords(s.usedWords || []);
     setPlayers(s.players);
     setRound(s.round);
     setTurnIndex(s.turnIndex);
-    setWordHistory(s.wordHistory);
-    setVotes(s.votes);
+    setWordHistory(s.wordHistory || []);
+    setVotes(s.votes || {});
+    if (myPlayerId) setIsHost(s.hostPlayerId === myPlayerId);
   }
 
   async function pushState(next: SyncedState) {
@@ -121,6 +167,46 @@ export default function App() {
       console.error("Supabase upsert error:", error);
     }
   }
+
+  // Restore an online player after refresh or a temporary browser hiccup.
+  useEffect(() => {
+    async function restoreSession() {
+      if (!onlineAvailable || !supabase) {
+        setRestoringSession(false);
+        return;
+      }
+      const saved = readOnlineSession();
+      if (!saved) {
+        setRestoringSession(false);
+        return;
+      }
+      const { data, error } = await supabase
+        .from("rooms")
+        .select("state")
+        .eq("code", saved.roomCode)
+        .maybeSingle();
+      if (error || !data?.state) {
+        clearOnlineSession();
+        setRestoringSession(false);
+        return;
+      }
+      const restored = data.state as SyncedState;
+      const player = restored.players?.find((p) => p.id === saved.playerId);
+      if (!player) {
+        clearOnlineSession();
+        setNotice("That player is no longer in the room.");
+        setRestoringSession(false);
+        return;
+      }
+      setMyPlayerId(saved.playerId);
+      setHostName(saved.playerName);
+      setIsOnline(true);
+      setIsHost(restored.hostPlayerId === saved.playerId);
+      applyState(restored);
+      setRestoringSession(false);
+    }
+    restoreSession();
+  }, []);
 
   // ---- Subscribe to Supabase realtime (everyone online) ----
   useEffect(() => {
@@ -139,7 +225,17 @@ export default function App() {
         (payload: any) => {
           if (!payload.new?.state) return;
           const newState = payload.new.state as SyncedState;
+          if (myPlayerId && !newState.players?.some((p) => p.id === myPlayerId)) {
+            clearOnlineSession();
+            setNotice("You were removed from the room by the host.");
+            setIsOnline(false);
+            setIsHost(false);
+            setMyPlayerId("");
+            setStage("landing");
+            return;
+          }
           applyState(newState);
+          if (myPlayerId) setIsHost(newState.hostPlayerId === myPlayerId);
         }
       )
       .subscribe();
@@ -147,12 +243,15 @@ export default function App() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [isOnline, roomCode]);
+  }, [isOnline, roomCode, myPlayerId]);
 
   // --------- NAV / RESET ----------
   function goHome() {
+    if (isOnline) clearOnlineSession();
     setStage("landing");
     setRoomCode("");
+    setHostPlayerId("");
+    setUsedWords([]);
     setPlayers([]);
     setRound(null);
     setWordHistory([]);
@@ -190,11 +289,13 @@ export default function App() {
     const next = buildState({
       stage: "lobby",
       roomCode: code,
+      hostPlayerId: id,
       players: [host],
       round: null,
       turnIndex: 0,
       wordHistory: [],
       votes: {},
+      usedWords: [],
     });
 
     applyState(next);
@@ -218,28 +319,40 @@ export default function App() {
       alert("Online play isn’t configured yet.");
       return;
     }
-
-    const code = makeRoomCode();
     const id = crypto.randomUUID();
-    const host: Player = { id, name: hostName || "Host", ready: false };
+    const playerName = hostName.trim() || "Host";
+    const host: Player = { id, name: playerName, ready: false };
 
-    setIsOnline(true);
-    setIsHost(true);
-    setMyPlayerId(id);
-
-    const next: SyncedState = {
-      stage: "lobby",
-      roomCode: code,
-      players: [host],
-      round: null,
-      turnIndex: 0,
-      wordHistory: [],
-      votes: {},
-    };
-
-    applyState(next);
-    bumpRoomsHosted();
-    await pushState(next);
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const code = makeRoomCode();
+      const next: SyncedState = {
+        stage: "lobby",
+        roomCode: code,
+        hostPlayerId: id,
+        players: [host],
+        round: null,
+        turnIndex: 0,
+        wordHistory: [],
+        votes: {},
+        usedWords: [],
+      };
+      const { error } = await supabase.from("rooms").insert({ code, state: next });
+      if (!error) {
+        setIsOnline(true);
+        setIsHost(true);
+        setMyPlayerId(id);
+        saveOnlineSession({ roomCode: code, playerId: id, playerName });
+        applyState(next);
+        bumpRoomsHosted();
+        return;
+      }
+      if (error.code !== "23505") {
+        console.error(error);
+        alert("Could not create the room. Please try again.");
+        return;
+      }
+    }
+    alert("Could not generate a unique room code. Please try again.");
   }
 
   async function joinOnlineRoom(code: string, name: string) {
@@ -247,48 +360,28 @@ export default function App() {
       alert("Online play isn’t configured yet.");
       return;
     }
-
     const joinCode = code.trim().toUpperCase();
     if (!joinCode) return;
+    const saved = readOnlineSession();
+    const myId = saved?.roomCode === joinCode ? saved.playerId : crypto.randomUUID();
+    const playerName = name.trim() || saved?.playerName || "Player";
 
-    const myId = crypto.randomUUID();
-    const playerName = name.trim() || "Player";
-
-    const { data, error } = await supabase
-      .from("rooms")
-      .select("state")
-      .eq("code", joinCode)
-      .single();
-
-    if (!data || error) {
+    const { data, error } = await supabase.rpc("join_room", {
+      p_room_code: joinCode,
+      p_player_id: myId,
+      p_player_name: playerName,
+    });
+    if (error || !data) {
       console.error(error);
-      alert("Room not found.");
-      setIsOnline(false);
+      alert(error?.message || "Room not found.");
       return;
     }
-
-    const s = data.state as SyncedState;
-    let playersNext = s.players;
-
-    if (!playersNext.find((p) => p.id === myId)) {
-      playersNext = [
-        ...playersNext,
-        { id: myId, name: playerName, ready: false },
-      ];
-    }
-
-    const next: SyncedState = {
-      ...s,
-      roomCode: joinCode,
-      players: playersNext,
-    };
-
+    const next = data as SyncedState;
     setMyPlayerId(myId);
     setIsOnline(true);
-    setIsHost(false);
-
+    setIsHost(next.hostPlayerId === myId);
+    saveOnlineSession({ roomCode: joinCode, playerId: myId, playerName });
     applyState(next);
-    await pushState(next);
   }
 
   // --------- GAME LOGIC ----------
@@ -296,16 +389,22 @@ export default function App() {
     ? players.length >= 3 && players.every((p) => p.ready)
     : players.length >= 3; // local: only require 3+ players
 
-  function toggleReady(id: string) {
-    const updatedPlayers = players.map((p) =>
-      p.id === id ? { ...p, ready: !p.ready } : p
-    );
-    setPlayers(updatedPlayers);
-
-    if (isOnline) {
-      const next = buildState({ players: updatedPlayers });
-      pushState(next);
+  async function toggleReady(id: string) {
+    if (!isOnline) {
+      setPlayers((current) => current.map((p) => p.id === id ? { ...p, ready: !p.ready } : p));
+      return;
     }
+    if (!supabase || id !== myPlayerId) return;
+    const { data, error } = await supabase.rpc("toggle_player_ready", {
+      p_room_code: roomCode,
+      p_player_id: id,
+    });
+    if (error) {
+      console.error(error);
+      alert("Could not update ready status. Please try again.");
+      return;
+    }
+    if (data) applyState(data as SyncedState);
   }
 
   function startGame(categoryId?: string, customWord?: string) {
@@ -315,7 +414,11 @@ export default function App() {
     const cat =
       defaultCategories.find((c) => c.id === (categoryId || "random")) ||
       defaultCategories[0];
-    const secret = customWord?.trim() || cat.words[rand(cat.words.length)];
+    const previousWords = usedWords;
+    const availableWords = cat.words.filter((word) => !previousWords.includes(word.toLowerCase()));
+    const pool = availableWords.length > 0 ? availableWords : cat.words;
+    const secret = customWord?.trim() || pool[rand(pool.length)];
+    const usedWords = [...previousWords, secret.toLowerCase()].slice(-100);
 
     // random starting player index
     const startingIndex = rand(players.length);
@@ -330,6 +433,8 @@ export default function App() {
         turnIndex: startingIndex,
         wordHistory: [],
         votes: {},
+        usedWords,
+        hostPlayerId: myPlayerId,
       });
       applyState(next);
       pushState(next);
@@ -367,27 +472,62 @@ export default function App() {
     }
   }
 
-  function castVote(targetId: string) {
+  async function castVote(targetId: string) {
     if (!isOnline) {
-      // local: just store a single "group vote" for visualization
-      const newVotes: VotesMap = { group: targetId };
-      setVotes(newVotes);
+      setVotes({ group: targetId });
       return;
     }
-
-    if (!myPlayerId) return;
-
-    // 1 vote per player online: overwrite your previous vote
-    const newVotes: VotesMap = {
-      ...votes,
-      [myPlayerId]: targetId,
-    };
-    setVotes(newVotes);
-
-    if (isOnline) {
-      const next = buildState({ votes: newVotes });
-      pushState(next);
+    if (!myPlayerId || !supabase || votePending) return;
+    setVotePending(true);
+    const { data, error } = await supabase.rpc("cast_room_vote", {
+      p_room_code: roomCode,
+      p_voter_id: myPlayerId,
+      p_target_id: targetId,
+    });
+    setVotePending(false);
+    if (error) {
+      console.error(error);
+      alert("Your vote did not save. Please tap again.");
+      return;
     }
+    if (data) applyState(data as SyncedState);
+  }
+
+  async function kickPlayer(playerId: string) {
+    if (!isOnline || !isHost || !supabase || playerId === myPlayerId) return;
+    const player = players.find((p) => p.id === playerId);
+    if (!player || !window.confirm(`Remove ${player.name} from the room?`)) return;
+    const { data, error } = await supabase.rpc("kick_room_player", {
+      p_room_code: roomCode,
+      p_host_id: myPlayerId,
+      p_player_id: playerId,
+    });
+    if (error) {
+      console.error(error);
+      alert("Could not remove that player.");
+      return;
+    }
+    if (data) applyState(data as SyncedState);
+  }
+
+  async function restartToLobby() {
+    if (!isHost) return;
+    if (!window.confirm("Return everyone to the lobby? Current round and votes will be cleared.")) return;
+    if (!isOnline) {
+      nextRound();
+      return;
+    }
+    if (!supabase) return;
+    const { data, error } = await supabase.rpc("restart_room_to_lobby", {
+      p_room_code: roomCode,
+      p_host_id: myPlayerId,
+    });
+    if (error) {
+      console.error(error);
+      alert("Could not restart the room.");
+      return;
+    }
+    if (data) applyState(data as SyncedState);
   }
 
   function endRound() {
@@ -410,6 +550,8 @@ export default function App() {
       wordHistory: [],
       votes: {},
       turnIndex: 0,
+      hostPlayerId,
+      usedWords,
     });
 
     applyState(next);
@@ -464,7 +606,16 @@ export default function App() {
       <div className="max-w-5xl mx-auto">
         <Header isOnline={isOnline} onHome={goHome} onShowHowTo={() => setShowHowTo(true)} />
 
-        {stage === "landing" && (
+        {notice && (
+          <div className="mb-4 rounded-2xl border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-sm flex items-center justify-between gap-3">
+            <span>{notice}</span>
+            <button onClick={() => setNotice("")} className="text-xs underline">Dismiss</button>
+          </div>
+        )}
+
+        {restoringSession ? (
+          <div className="rounded-3xl p-6 bg-zinc-800/50 border border-zinc-700 text-center">Restoring your room…</div>
+        ) : stage === "landing" && (
           <Landing
             hostName={hostName}
             setHostName={setHostName}
@@ -487,6 +638,7 @@ export default function App() {
             isOnline={isOnline}
             onAddLocalPlayer={isOnline ? undefined : addLocalPlayer}
             onShareRoom={shareRoom}
+            onKickPlayer={kickPlayer}
           />
         )}
 
@@ -512,11 +664,14 @@ export default function App() {
             votes={votes}
             onReveal={endRound}
             isOnline={isOnline}
+            isHost={isHost}
+            onRestartToLobby={restartToLobby}
+            votePending={votePending}
           />
         )}
 
         {stage === "reveal" && round && (
-          <Reveal players={players} round={round} votes={votes} onNextRound={nextRound} />
+          <Reveal players={players} round={round} votes={votes} onNextRound={nextRound} isHost={isHost} onRestartToLobby={restartToLobby} />
         )}
 
         <Footer
@@ -588,7 +743,10 @@ function Landing({
   onJoinOnline: (code: string, name: string) => void;
   onlineAvailable: boolean;
 }) {
-  const [joinCode, setJoinCode] = useState("");
+  const [joinCode, setJoinCode] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("room")?.toUpperCase() || "";
+  });
   const [joinName, setJoinName] = useState("");
 
   return (
@@ -689,6 +847,7 @@ function Lobby({
   isOnline,
   onAddLocalPlayer,
   onShareRoom,
+  onKickPlayer,
 }: {
   roomCode: string;
   players: Player[];
@@ -700,6 +859,7 @@ function Lobby({
   isOnline: boolean;
   onAddLocalPlayer?: (name: string) => void;
   onShareRoom: (roomCode: string) => void;
+  onKickPlayer: (playerId: string) => void;
 }) {
   const [categoryId, setCategoryId] = useState("random");
   const [customWord, setCustomWord] = useState("");
@@ -746,6 +906,14 @@ function Lobby({
                     className="mt-2 text-xs px-2 py-1 rounded-lg bg-zinc-200 text-zinc-900"
                   >
                     {p.ready ? "Unready" : "Ready up"}
+                  </button>
+                )}
+                {isOnline && isHost && p.id !== myPlayerId && (
+                  <button
+                    onClick={() => onKickPlayer(p.id)}
+                    className="mt-2 ml-2 text-xs px-2 py-1 rounded-lg border border-rose-500/60 bg-rose-500/10 text-rose-200"
+                  >
+                    Remove
                   </button>
                 )}
               </div>
@@ -945,6 +1113,9 @@ function Game({
   votes,
   onReveal,
   isOnline,
+  isHost,
+  onRestartToLobby,
+  votePending,
 }: {
   players: Player[];
   myPlayerId: string;
@@ -956,6 +1127,9 @@ function Game({
   votes: VotesMap;
   onReveal: () => void;
   isOnline: boolean;
+  isHost: boolean;
+  onRestartToLobby: () => void;
+  votePending: boolean;
 }) {
   const me = isOnline ? players.find((p) => p.id === myPlayerId) : undefined;
   const mySeesSecret = !!(isOnline && me && !me.isImposter);
@@ -975,7 +1149,10 @@ function Game({
   let requiredVotes = 0;
 
   if (isOnline) {
-    const totalVotes = Object.keys(votes).length;
+    const validPlayerIds = new Set(players.map((p) => p.id));
+    const totalVotes = Object.entries(votes).filter(
+      ([voterId, targetId]) => validPlayerIds.has(voterId) && validPlayerIds.has(targetId)
+    ).length;
     if (players.length <= 3) {
       requiredVotes = 2;
     } else {
@@ -1100,13 +1277,27 @@ function Game({
             <button
               key={p.id}
               onClick={() => onVote(p.id)}
-              className="rounded-xl bg-zinc-900/60 border border-zinc-700 p-2 text-left hover:bg-zinc-900"
+              disabled={votePending}
+              className={`rounded-xl p-2 text-left transition ${
+                votes[myPlayerId] === p.id
+                  ? "bg-emerald-500/20 border border-emerald-500/70"
+                  : "bg-zinc-900/60 border border-zinc-700 hover:bg-zinc-900"
+              } ${votePending ? "opacity-60 cursor-wait" : ""}`}
             >
               <div className="text-sm font-semibold">{p.name}</div>
               <div className="text-xs opacity-70">Votes: {voteCounts[p.id] || 0}</div>
+              {votes[myPlayerId] === p.id && <div className="text-xs text-emerald-300">Your vote</div>}
             </button>
           ))}
         </div>
+        {isHost && (
+          <button
+            onClick={onRestartToLobby}
+            className="mt-4 w-full py-2 rounded-2xl border border-amber-500/60 bg-amber-500/10 text-amber-100 font-semibold"
+          >
+            Return everyone to lobby
+          </button>
+        )}
         <button
           onClick={onReveal}
           disabled={isOnline && !canReveal}
@@ -1134,11 +1325,15 @@ function Reveal({
   round,
   votes,
   onNextRound,
+  isHost,
+  onRestartToLobby,
 }: {
   players: Player[];
   round: RoundConfig;
   votes: VotesMap;
   onNextRound: () => void;
+  isHost: boolean;
+  onRestartToLobby: () => void;
 }) {
   const tally = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -1208,12 +1403,24 @@ function Reveal({
               </div>
             ))}
           </div>
-          <button
-            onClick={onNextRound}
-            className="mt-4 w-full py-2 rounded-2xl bg-white text-black font-semibold"
-          >
-            Next round
-          </button>
+          {isHost ? (
+            <>
+              <button
+                onClick={onNextRound}
+                className="mt-4 w-full py-2 rounded-2xl bg-white text-black font-semibold"
+              >
+                Next round
+              </button>
+              <button
+                onClick={onRestartToLobby}
+                className="mt-2 w-full py-2 rounded-2xl border border-amber-500/60 bg-amber-500/10 text-amber-100 font-semibold"
+              >
+                Return everyone to lobby
+              </button>
+            </>
+          ) : (
+            <div className="mt-4 text-xs opacity-70 text-center">Waiting for the host to start the next round.</div>
+          )}
         </div>
       </div>
     </div>
