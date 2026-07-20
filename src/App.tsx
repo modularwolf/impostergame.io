@@ -54,6 +54,7 @@ interface SyncedState {
   wordHistory: { name: string; word: string }[];
   votes: VotesMap;
   usedWords?: string[];
+  roomNotice?: string;
 }
 
 interface OnlineSession {
@@ -109,6 +110,8 @@ export default function App() {
   const [votePending, setVotePending] = useState(false);
   const [roomSyncPending, setRoomSyncPending] = useState(false);
   const [notice, setNotice] = useState("");
+  const [roomNotice, setRoomNotice] = useState("");
+  const [activeSession, setActiveSession] = useState<OnlineSession | null>(() => readOnlineSession());
 
   // Local-only: pass-and-play role reveal index
   const [localRoleIndex, setLocalRoleIndex] = useState(0);
@@ -140,6 +143,7 @@ export default function App() {
       wordHistory,
       votes,
       usedWords,
+      roomNotice: roomNotice || undefined,
       ...overrides,
     };
   }
@@ -154,6 +158,8 @@ export default function App() {
     setTurnIndex(s.turnIndex);
     setWordHistory(s.wordHistory || []);
     setVotes(s.votes || {});
+    setRoomNotice(s.roomNotice || "");
+    if (s.roomNotice) setNotice(s.roomNotice);
     if (myPlayerId) setIsHost(s.hostPlayerId === myPlayerId);
   }
 
@@ -169,41 +175,46 @@ export default function App() {
     }
   }
 
+  async function resumeOnlineSession(session?: OnlineSession | null) {
+    if (!onlineAvailable || !supabase) return false;
+    const saved = session || readOnlineSession();
+    if (!saved) return false;
+
+    const { data, error } = await supabase
+      .from("rooms")
+      .select("state")
+      .eq("code", saved.roomCode)
+      .maybeSingle();
+
+    if (error || !data?.state) {
+      clearOnlineSession();
+      setActiveSession(null);
+      setNotice("That room is no longer available.");
+      return false;
+    }
+
+    const restored = data.state as SyncedState;
+    const player = restored.players?.find((p) => p.id === saved.playerId);
+    if (!player) {
+      clearOnlineSession();
+      setActiveSession(null);
+      setNotice("That player is no longer in the room.");
+      return false;
+    }
+
+    setMyPlayerId(saved.playerId);
+    setHostName(saved.playerName);
+    setIsOnline(true);
+    setIsHost(restored.hostPlayerId === saved.playerId);
+    setActiveSession(saved);
+    applyState(restored);
+    return true;
+  }
+
   // Restore an online player after refresh or a temporary browser hiccup.
   useEffect(() => {
     async function restoreSession() {
-      if (!onlineAvailable || !supabase) {
-        setRestoringSession(false);
-        return;
-      }
-      const saved = readOnlineSession();
-      if (!saved) {
-        setRestoringSession(false);
-        return;
-      }
-      const { data, error } = await supabase
-        .from("rooms")
-        .select("state")
-        .eq("code", saved.roomCode)
-        .maybeSingle();
-      if (error || !data?.state) {
-        clearOnlineSession();
-        setRestoringSession(false);
-        return;
-      }
-      const restored = data.state as SyncedState;
-      const player = restored.players?.find((p) => p.id === saved.playerId);
-      if (!player) {
-        clearOnlineSession();
-        setNotice("That player is no longer in the room.");
-        setRestoringSession(false);
-        return;
-      }
-      setMyPlayerId(saved.playerId);
-      setHostName(saved.playerName);
-      setIsOnline(true);
-      setIsHost(restored.hostPlayerId === saved.playerId);
-      applyState(restored);
+      await resumeOnlineSession();
       setRestoringSession(false);
     }
     restoreSession();
@@ -248,7 +259,16 @@ export default function App() {
 
   // --------- NAV / RESET ----------
   function goHome() {
-    if (isOnline) clearOnlineSession();
+    // Going home is not the same as leaving an online room. Keep the saved
+    // session so the player can resume after an accidental tap or refresh.
+    if (isOnline) {
+      setActiveSession(readOnlineSession());
+      setStage("landing");
+      setIsOnline(false);
+      setIsHost(false);
+      return;
+    }
+
     setStage("landing");
     setRoomCode("");
     setHostPlayerId("");
@@ -262,7 +282,6 @@ export default function App() {
     setIsHost(false);
     setMyPlayerId("");
     setLocalRoleIndex(0);
-    // hostName preserved so host doesn't have to retype
   }
 
   function bumpRoomsHosted() {
@@ -342,7 +361,9 @@ export default function App() {
         setIsOnline(true);
         setIsHost(true);
         setMyPlayerId(id);
-        saveOnlineSession({ roomCode: code, playerId: id, playerName });
+        const session = { roomCode: code, playerId: id, playerName };
+        saveOnlineSession(session);
+        setActiveSession(session);
         applyState(next);
         bumpRoomsHosted();
         return;
@@ -381,7 +402,9 @@ export default function App() {
     setMyPlayerId(myId);
     setIsOnline(true);
     setIsHost(next.hostPlayerId === myId);
-    saveOnlineSession({ roomCode: joinCode, playerId: myId, playerName });
+    const session = { roomCode: joinCode, playerId: myId, playerName };
+    saveOnlineSession(session);
+    setActiveSession(session);
     applyState(next);
   }
 
@@ -415,6 +438,52 @@ export default function App() {
     applyState(synced);
     setIsHost(synced.hostPlayerId === myPlayerId);
     setNotice("Room synced.");
+  }
+
+
+  async function leaveOnlineRoom() {
+    const saved = readOnlineSession();
+    if (!saved) {
+      clearOnlineSession();
+      setActiveSession(null);
+      goHome();
+      return;
+    }
+
+    const leavingAsHost = hostPlayerId === saved.playerId;
+    const message = leavingAsHost
+      ? "Leave this room? Another player will become host and everyone will return to the lobby."
+      : "Leave this room? You will be removed from the player list.";
+
+    if (!window.confirm(message)) return;
+
+    if (supabase) {
+      const { error } = await supabase.rpc("leave_room", {
+        p_room_code: saved.roomCode,
+        p_player_id: saved.playerId,
+      });
+      if (error) {
+        console.error(error);
+        alert("Could not leave the room. Please check your connection and try again.");
+        return;
+      }
+    }
+
+    clearOnlineSession();
+    setActiveSession(null);
+    setStage("landing");
+    setRoomCode("");
+    setHostPlayerId("");
+    setUsedWords([]);
+    setPlayers([]);
+    setRound(null);
+    setWordHistory([]);
+    setVotes({});
+    setTurnIndex(0);
+    setIsOnline(false);
+    setIsHost(false);
+    setMyPlayerId("");
+    setNotice("You left the room.");
   }
 
   // --------- GAME LOGIC ----------
@@ -637,7 +706,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-zinc-950 to-zinc-900 text-zinc-100 p-6">
       <div className="max-w-5xl mx-auto">
-        <Header isOnline={isOnline} onHome={goHome} onShowHowTo={() => setShowHowTo(true)} />
+        <Header isOnline={isOnline} onHome={goHome} onLeaveRoom={leaveOnlineRoom} onShowHowTo={() => setShowHowTo(true)} />
 
         {notice && (
           <div className="mb-4 rounded-2xl border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-sm flex items-center justify-between gap-3">
@@ -656,6 +725,9 @@ export default function App() {
             onHostOnline={hostOnlineRoom}
             onJoinOnline={joinOnlineRoom}
             onlineAvailable={onlineAvailable}
+            activeSession={activeSession}
+            onResumeSession={() => resumeOnlineSession(activeSession)}
+            onLeaveSession={leaveOnlineRoom}
           />
         )}
 
@@ -728,10 +800,12 @@ export default function App() {
 function Header({
   isOnline,
   onHome,
+  onLeaveRoom,
   onShowHowTo,
 }: {
   isOnline: boolean;
   onHome: () => void;
+  onLeaveRoom: () => void;
   onShowHowTo: () => void;
 }) {
   return (
@@ -749,6 +823,14 @@ function Header({
         </p>
       </button>
       <div className="flex items-center gap-3">
+        {isOnline && (
+          <button
+            onClick={onLeaveRoom}
+            className="text-xs md:text-sm px-3 py-1 rounded-full border border-rose-500/50 bg-rose-500/10 hover:bg-rose-500/20 transition"
+          >
+            Leave room
+          </button>
+        )}
         <button
           onClick={onShowHowTo}
           className="text-xs md:text-sm px-3 py-1 rounded-full border border-zinc-600 bg-zinc-900/70 hover:bg-zinc-800 transition"
@@ -770,6 +852,9 @@ function Landing({
   onHostOnline,
   onJoinOnline,
   onlineAvailable,
+  activeSession,
+  onResumeSession,
+  onLeaveSession,
 }: {
   hostName: string;
   setHostName: (v: string) => void;
@@ -777,6 +862,9 @@ function Landing({
   onHostOnline: () => void;
   onJoinOnline: (code: string, name: string) => void;
   onlineAvailable: boolean;
+  activeSession: OnlineSession | null;
+  onResumeSession: () => void;
+  onLeaveSession: () => void;
 }) {
   const [joinCode, setJoinCode] = useState(() => {
     if (typeof window === "undefined") return "";
@@ -785,7 +873,27 @@ function Landing({
   const [joinName, setJoinName] = useState("");
 
   return (
-    <div className="grid gap-6 md:grid-cols-[1.4fr,1fr]">
+    <>
+      {activeSession && (
+        <div className="mb-6 rounded-3xl p-5 bg-emerald-500/10 border border-emerald-500/40 shadow-xl">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <div className="text-sm text-emerald-200">You still have an active room</div>
+              <div className="text-xl font-bold">Room {activeSession.roomCode} · {activeSession.playerName}</div>
+              <div className="text-xs opacity-70 mt-1">Closing the browser or tapping the title does not remove you.</div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={onResumeSession} className="px-4 py-2 rounded-2xl bg-emerald-400 text-black font-semibold">
+                Resume room
+              </button>
+              <button onClick={onLeaveSession} className="px-4 py-2 rounded-2xl border border-rose-500/50 bg-rose-500/10 text-rose-100">
+                Leave
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      <div className="grid gap-6 md:grid-cols-[1.4fr,1fr]">
       {/* Hero / host card */}
       <div className="rounded-3xl p-6 bg-zinc-900/70 border border-zinc-700 shadow-xl">
         <h2 className="text-2xl md:text-3xl font-bold mb-2">
@@ -868,6 +976,7 @@ function Landing({
         </button>
       </div>
     </div>
+    </>
   );
 }
 
