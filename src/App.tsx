@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { supabase } from "./supabaseClient";
-// style
+import { supabase } from "./supabaseClient.ts";
+import "./style.css";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/react"
 
