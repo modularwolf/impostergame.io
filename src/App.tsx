@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { supabase } from "./supabaseClient.ts";
-import "./style.css";
+import { supabase } from "./supabaseClient";
+// style
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/react"
 
@@ -55,6 +55,7 @@ interface SyncedState {
   votes: VotesMap;
   usedWords?: string[];
   roomNotice?: string;
+  roundEndReason?: "imposterLeft";
 }
 
 interface OnlineSession {
@@ -108,9 +109,12 @@ export default function App() {
   const [isHost, setIsHost] = useState(false);
   const [restoringSession, setRestoringSession] = useState(true);
   const [votePending, setVotePending] = useState(false);
+  const [startPending, setStartPending] = useState(false);
+  const [cluePending, setCluePending] = useState(false);
   const [roomSyncPending, setRoomSyncPending] = useState(false);
   const [notice, setNotice] = useState("");
   const [roomNotice, setRoomNotice] = useState("");
+  const [roundEndReason, setRoundEndReason] = useState<"imposterLeft" | "">("");
   const [activeSession, setActiveSession] = useState<OnlineSession | null>(() => readOnlineSession());
 
   // Local-only: pass-and-play role reveal index
@@ -158,8 +162,11 @@ export default function App() {
     setTurnIndex(s.turnIndex);
     setWordHistory(s.wordHistory || []);
     setVotes(s.votes || {});
+    // Only raise the banner when the room notice actually changes, so a
+    // dismissed notice doesn't pop back up on the next unrelated update.
+    if (s.roomNotice && s.roomNotice !== roomNotice) setNotice(s.roomNotice);
     setRoomNotice(s.roomNotice || "");
-    if (s.roomNotice) setNotice(s.roomNotice);
+    setRoundEndReason(s.roundEndReason || "");
     if (myPlayerId) setIsHost(s.hostPlayerId === myPlayerId);
   }
 
@@ -509,7 +516,7 @@ export default function App() {
     if (data) applyState(data as SyncedState);
   }
 
-  function startGame(categoryId?: string, customWord?: string) {
+  async function startGame(categoryId?: string, customWord?: string) {
     const impIndex = rand(players.length);
     const roles = players.map((p, i) => ({ ...p, isImposter: i === impIndex }));
 
@@ -528,18 +535,27 @@ export default function App() {
     bumpRoundStarted(players.length);
 
     if (isOnline) {
-      const next = buildState({
-        stage: "game",
-        players: roles,
-        round: { categoryId: cat.id, secretWord: secret },
-        turnIndex: startingIndex,
-        wordHistory: [],
-        votes: {},
-        usedWords: nextUsedWords,
-        hostPlayerId: myPlayerId,
+      // Server-authoritative start: the server applies the imposter role and
+      // secret onto its freshest player list, so a last-instant join/ready
+      // can't erase anyone. We send index positions; the server clamps them.
+      if (!supabase || startPending) return;
+      setStartPending(true);
+      const { data, error } = await supabase.rpc("start_round", {
+        p_room_code: roomCode,
+        p_host_id: myPlayerId,
+        p_imposter_index: impIndex,
+        p_secret_word: secret,
+        p_category_id: cat.id,
+        p_starting_index: startingIndex,
+        p_used_words: nextUsedWords,
       });
-      applyState(next);
-      pushState(next);
+      setStartPending(false);
+      if (error) {
+        console.error(error);
+        alert(error.message || "Could not start the round. Please try again.");
+        return;
+      }
+      if (data) applyState(data as SyncedState);
     } else {
       // local: go into pass-and-play role reveal flow
       setLocalRoleIndex(0);
@@ -555,22 +571,33 @@ export default function App() {
     }
   }
 
-  function submitWord(word: string) {
+  async function submitWord(word: string) {
     const p = players[turnIndex];
     if (!p) return;
 
-    const newHistory = [...wordHistory, { name: p.name, word }];
-    const newTurn = (turnIndex + 1) % players.length;
-
-    setWordHistory(newHistory);
-    setTurnIndex(newTurn);
-
     if (isOnline) {
-      const next = buildState({
-        wordHistory: newHistory,
-        turnIndex: newTurn,
+      // Server appends the clue and advances the turn under a row lock, so two
+      // fast submissions can't overwrite each other and the turn pointer stays
+      // valid even if the player list changed.
+      if (!supabase || cluePending) return;
+      setCluePending(true);
+      const { data, error } = await supabase.rpc("submit_clue", {
+        p_room_code: roomCode,
+        p_player_id: myPlayerId,
+        p_word: word,
       });
-      pushState(next);
+      setCluePending(false);
+      if (error) {
+        console.error(error);
+        alert(error.message || "Your clue did not save. Please try again.");
+        return;
+      }
+      if (data) applyState(data as SyncedState);
+    } else {
+      const newHistory = [...wordHistory, { name: p.name, word }];
+      const newTurn = (turnIndex + 1) % players.length;
+      setWordHistory(newHistory);
+      setTurnIndex(newTurn);
     }
   }
 
@@ -746,6 +773,7 @@ export default function App() {
             onKickPlayer={kickPlayer}
             onSyncRoom={syncRoom}
             roomSyncPending={roomSyncPending}
+            startPending={startPending}
           />
         )}
 
@@ -774,11 +802,12 @@ export default function App() {
             isHost={isHost}
             onRestartToLobby={restartToLobby}
             votePending={votePending}
+            cluePending={cluePending}
           />
         )}
 
         {stage === "reveal" && round && (
-          <Reveal players={players} round={round} votes={votes} onNextRound={nextRound} isHost={isHost} onRestartToLobby={restartToLobby} />
+          <Reveal players={players} round={round} votes={votes} onNextRound={nextRound} isHost={isHost} onRestartToLobby={restartToLobby} roundEndReason={roundEndReason} />
         )}
 
         <Footer
@@ -994,6 +1023,7 @@ function Lobby({
   onKickPlayer,
   onSyncRoom,
   roomSyncPending,
+  startPending,
 }: {
   roomCode: string;
   players: Player[];
@@ -1008,6 +1038,7 @@ function Lobby({
   onKickPlayer: (playerId: string) => void;
   onSyncRoom: () => void;
   roomSyncPending: boolean;
+  startPending?: boolean;
 }) {
   const setupStorageKey = `imposter-game:round-setup:${roomCode}`;
   const [categoryId, setCategoryId] = useState(() => {
@@ -1157,14 +1188,14 @@ function Lobby({
             />
             <button
               onClick={() => onStart(categoryId, customWord)}
-              disabled={!allReady}
+              disabled={!allReady || startPending}
               className={`w-full py-3 rounded-2xl font-semibold transition ${
-                allReady
+                allReady && !startPending
                   ? "bg-white text-black"
                   : "bg-zinc-700 text-zinc-400 cursor-not-allowed"
               }`}
             >
-              Start game
+              {startPending ? "Starting…" : "Start game"}
             </button>
             <div className="text-xs opacity-70 mt-2">
               Need at least 3 players{isOnline && " and everyone ready"}.
@@ -1299,6 +1330,7 @@ function Game({
   isHost,
   onRestartToLobby,
   votePending,
+  cluePending,
 }: {
   players: Player[];
   myPlayerId: string;
@@ -1313,6 +1345,7 @@ function Game({
   isHost: boolean;
   onRestartToLobby: () => void;
   votePending: boolean;
+  cluePending?: boolean;
 }) {
   const me = isOnline ? players.find((p) => p.id === myPlayerId) : undefined;
   const mySeesSecret = !!(isOnline && me && !me.isImposter);
@@ -1416,13 +1449,16 @@ function Game({
             />
             <button
               onClick={() => {
-                if (!word.trim()) return;
+                if (!word.trim() || cluePending) return;
                 onSubmitWord(word.trim());
                 setWord("");
               }}
-              className="px-4 py-2 rounded-xl font-semibold bg-white text-black"
+              disabled={cluePending}
+              className={`px-4 py-2 rounded-xl font-semibold ${
+                cluePending ? "bg-zinc-700 text-zinc-400 cursor-not-allowed" : "bg-white text-black"
+              }`}
             >
-              Say it
+              {cluePending ? "…" : "Say it"}
             </button>
           </div>
         </div>
@@ -1510,6 +1546,7 @@ function Reveal({
   onNextRound,
   isHost,
   onRestartToLobby,
+  roundEndReason,
 }: {
   players: Player[];
   round: RoundConfig;
@@ -1517,6 +1554,7 @@ function Reveal({
   onNextRound: () => void;
   isHost: boolean;
   onRestartToLobby: () => void;
+  roundEndReason?: "imposterLeft" | "";
 }) {
   const tally = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -1543,6 +1581,7 @@ function Reveal({
   const imp = players.find((p) => p.isImposter);
   const votedOut = players.find((p) => p.id === tally.topTargetId);
   const success = imp && votedOut && imp.id === votedOut.id;
+  const imposterLeft = roundEndReason === "imposterLeft";
 
   return (
     <div className="rounded-3xl p-6 bg-zinc-800/50 border border-zinc-700">
@@ -1554,15 +1593,23 @@ function Reveal({
             {round.secretWord}
           </div>
           <div className="text-sm opacity-70">Imposter</div>
-          <div className="text-xl font-bold mb-4">{imp?.name}</div>
+          <div className="text-xl font-bold mb-4">
+            {imposterLeft ? "Left the room" : imp?.name}
+          </div>
           <div
             className={`inline-block px-3 py-1 rounded-xl text-sm ${
-              success
+              imposterLeft
+                ? "bg-amber-500/20 border border-amber-500/60"
+                : success
                 ? "bg-emerald-500/20 border border-emerald-500/60"
                 : "bg-rose-500/20 border border-rose-500/60"
             }`}
           >
-            {success ? "Crew wins!" : "Imposter survives!"}
+            {imposterLeft
+              ? "The imposter left — round ended"
+              : success
+              ? "Crew wins!"
+              : "Imposter survives!"}
           </div>
           {votedOut && (
             <div className="text-sm opacity-80 mt-3">
