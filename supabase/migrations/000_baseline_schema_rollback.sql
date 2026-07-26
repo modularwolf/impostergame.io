@@ -1,0 +1,14 @@
+-- Intentional no-op.
+--
+-- 000_baseline_schema.sql documents objects that were ALREADY LIVE in
+-- production before this reconciliation — `rooms` and every function on it
+-- predate this migration folder entirely. A real rollback would mean
+-- dropping the live `rooms` table and every RPC the web app calls, which
+-- would take down the app for all current players. That is never what you
+-- want for a documentation-only baseline.
+--
+-- If you truly need to remove something introduced in this reconciliation
+-- pass, do it by rolling back the SPECIFIC later migration that added it
+-- (e.g. 002_cleanup_empty_tables_rollback.sql, 003_secure_leave_and_kick_rollback.sql),
+-- not this file.
+select 1;

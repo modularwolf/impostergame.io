@@ -38,7 +38,18 @@ interface Player {
 
 interface RoundConfig {
   categoryId: string;
-  secretWord: string;
+  // Absent while stage is 'game' for online rooms — the secret word isn't
+  // broadcast to every player until reveal_round_secure runs at reveal time.
+  // Each online client fetches ONLY its own role via get_my_round_info
+  // instead. Local (pass-and-play) mode still sets this immediately since
+  // there's nothing to broadcast. See
+  // supabase/migrations/001_private_round_secrets.sql.
+  secretWord?: string;
+}
+
+interface MyRoundInfo {
+  isImposter: boolean;
+  secretWord: string | null;
 }
 
 // voterId -> targetPlayerId
@@ -104,6 +115,11 @@ export default function App() {
   const [wordHistory, setWordHistory] = useState<{ name: string; word: string }[]>([]);
   const [votes, setVotes] = useState<VotesMap>({});
   const [myPlayerId, setMyPlayerId] = useState("");
+  // Online-only: this player's own role/secret, fetched via
+  // get_my_round_info once the round starts. Never derived from `players`
+  // or `round` — those don't carry it until reveal. null = not loaded yet
+  // (either no active round, or the fetch is in flight).
+  const [myRoundInfo, setMyRoundInfo] = useState<MyRoundInfo | null>(null);
 
   const [isOnline, setIsOnline] = useState(false);
   const [isHost, setIsHost] = useState(false);
@@ -263,6 +279,34 @@ export default function App() {
       supabase.removeChannel(channel);
     };
   }, [isOnline, roomCode, myPlayerId]);
+
+  // Online + secure round path: as soon as this player is in an active
+  // round, fetch ONLY their own role/secret. The synced state (and thus the
+  // Realtime broadcast above) never carries secretWord or isImposter until
+  // reveal_round_secure runs — see supabase/migrations/001_private_round_secrets.sql.
+  // Clearing on any non-'game' stage keeps a stale role from a previous
+  // round bleeding into the next one.
+  useEffect(() => {
+    if (!onlineAvailable || !supabase || !isOnline || stage !== "game" || !roomCode || !myPlayerId) {
+      setMyRoundInfo(null);
+      return;
+    }
+    let cancelled = false;
+    supabase
+      .rpc("get_my_round_info", { p_room_code: roomCode, p_player_id: myPlayerId })
+      .then(({ data, error }: any) => {
+        if (cancelled) return;
+        if (error || !data) {
+          console.error(error);
+          setNotice(error?.message || "Could not load your role. Try syncing the room.");
+          return;
+        }
+        setMyRoundInfo(data as MyRoundInfo);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOnline, stage, roomCode, myPlayerId]);
 
   // --------- NAV / RESET ----------
   function goHome() {
@@ -465,7 +509,11 @@ export default function App() {
     if (!window.confirm(message)) return;
 
     if (supabase) {
-      const { error } = await supabase.rpc("leave_room", {
+      // leave_room_secure (not leave_room) so "the imposter left mid-round"
+      // detection reads round_secrets instead of the public isImposter flag,
+      // which the secure round path never populates until reveal. See
+      // supabase/migrations/003_secure_leave_and_kick.sql.
+      const { error } = await supabase.rpc("leave_room_secure", {
         p_room_code: saved.roomCode,
         p_player_id: saved.playerId,
       });
@@ -538,9 +586,13 @@ export default function App() {
       // Server-authoritative start: the server applies the imposter role and
       // secret onto its freshest player list, so a last-instant join/ready
       // can't erase anyone. We send index positions; the server clamps them.
+      // Uses start_round_secure (not start_round) so the secret word and
+      // imposter flag never enter the broadcast state — each client fetches
+      // its own via get_my_round_info instead. See
+      // supabase/migrations/001_private_round_secrets.sql.
       if (!supabase || startPending) return;
       setStartPending(true);
-      const { data, error } = await supabase.rpc("start_round", {
+      const { data, error } = await supabase.rpc("start_round_secure", {
         p_room_code: roomCode,
         p_host_id: myPlayerId,
         p_imposter_index: impIndex,
@@ -626,7 +678,9 @@ export default function App() {
     if (!isOnline || !isHost || !supabase || playerId === myPlayerId) return;
     const player = players.find((p) => p.id === playerId);
     if (!player || !window.confirm(`Remove ${player.name} from the room?`)) return;
-    const { data, error } = await supabase.rpc("kick_room_player", {
+    // kick_room_player_secure (not kick_room_player) — same reason as
+    // leave_room_secure above.
+    const { data, error } = await supabase.rpc("kick_room_player_secure", {
       p_room_code: roomCode,
       p_host_id: myPlayerId,
       p_player_id: playerId,
@@ -659,10 +713,26 @@ export default function App() {
     if (data) applyState(data as SyncedState);
   }
 
-  function endRound() {
+  async function endRound() {
+    if (isOnline) {
+      // reveal_round_secure copies the private secret into the public state
+      // (safe now — the round is over) and clears the private round_secrets
+      // row server-side, instead of the client pushing stage:'reveal' onto
+      // state that never had the secret in it to begin with.
+      if (!supabase) return;
+      const { data, error } = await supabase.rpc("reveal_round_secure", {
+        p_room_code: roomCode,
+      });
+      if (error) {
+        console.error(error);
+        alert(error.message || "Could not reveal the round.");
+        return;
+      }
+      if (data) applyState(data as SyncedState);
+      return;
+    }
     const next = buildState({ stage: "reveal" });
     applyState(next);
-    if (isOnline) pushState(next);
   }
 
   function nextRound() {
@@ -791,6 +861,7 @@ export default function App() {
           <Game
             players={players}
             myPlayerId={myPlayerId}
+            myRoundInfo={myRoundInfo}
             round={round}
             turnIndex={turnIndex}
             onSubmitWord={submitWord}
@@ -1319,6 +1390,7 @@ function LocalRoleReveal({
 function Game({
   players,
   myPlayerId,
+  myRoundInfo,
   round,
   turnIndex,
   onSubmitWord,
@@ -1334,6 +1406,7 @@ function Game({
 }: {
   players: Player[];
   myPlayerId: string;
+  myRoundInfo: MyRoundInfo | null;
   round: RoundConfig;
   turnIndex: number;
   onSubmitWord: (w: string) => void;
@@ -1347,8 +1420,10 @@ function Game({
   votePending: boolean;
   cluePending?: boolean;
 }) {
-  const me = isOnline ? players.find((p) => p.id === myPlayerId) : undefined;
-  const mySeesSecret = !!(isOnline && me && !me.isImposter);
+  // Online: role/secret come only from get_my_round_info (fetched in App),
+  // never from `players` or `round` — those don't carry it until reveal.
+  const roleLoading = isOnline && myRoundInfo === null;
+  const mySeesSecret = isOnline && myRoundInfo?.isImposter === false;
   const [word, setWord] = useState("");
   const startingPlayer = players[turnIndex];
 
@@ -1392,7 +1467,7 @@ function Game({
               <>
                 <div className="text-xs opacity-70">Your role</div>
                 <div className="text-lg font-semibold">
-                  {mySeesSecret ? "Knower" : "Imposter"}
+                  {roleLoading ? "Loading…" : mySeesSecret ? "Knower" : "Imposter"}
                 </div>
               </>
             ) : (
@@ -1408,8 +1483,10 @@ function Game({
           <div className="text-sm opacity-70">Secret word</div>
           <div className="text-2xl font-black tracking-tight">
             {isOnline
-              ? mySeesSecret
-                ? round.secretWord
+              ? roleLoading
+                ? "Loading…"
+                : mySeesSecret
+                ? myRoundInfo?.secretWord
                 : "???"
               : "Shown privately during role reveal"}
           </div>
