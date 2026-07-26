@@ -13,22 +13,13 @@ function makeRoomCode() {
   return Array.from({ length: 4 }, () => CODE_CHARS[rand(CODE_CHARS.length)]).join("");
 }
 
-const defaultCategories = [
-  { id: "animals", label: "Animals", words: ["giraffe", "lion", "otter", "falcon", "horse", "elephant", "tiger", "penguin", "dolphin", "shark", "koala", "kangaroo", "zebra", "rhinoceros", "hippopotamus", "cheetah", "wolf", "fox", "bear", "panda", "eagle", "owl", "parrot", "crocodile", "turtle", "octopus", "jellyfish", "seahorse", "butterfly", "bee", "gorilla", "camel", "sloth", "rabbit", "squirrel", "peacock", "flamingo", "moose", "deer", "raccoon"] },
-  { id: "foods", label: "Foods", words: ["pizza", "sushi", "taco", "ramen", "donut", "burger", "pasta", "steak", "pancake", "waffle", "burrito", "quesadilla", "lasagna", "salad", "sandwich", "hot dog", "fried chicken", "macaroni", "ice cream", "brownie", "cupcake", "cheesecake", "popcorn", "pretzel", "nachos", "cereal", "omelet", "bacon", "meatball", "dumpling", "curry", "soup", "lobster", "shrimp", "watermelon", "pineapple", "strawberry", "avocado", "cookie", "chocolate"] },
-  { id: "heroes", label: "Heroes & Villains", words: ["Spider-Man", "Iron Man", "Black Widow", "Thor", "Loki", "Batman", "Superman", "Wonder Woman", "Hulk", "Captain America", "Black Panther", "Doctor Strange", "Deadpool", "Wolverine", "Aquaman", "The Flash", "Green Lantern", "Joker", "Harley Quinn", "Thanos", "Venom", "Darth Vader", "Luke Skywalker", "Yoda", "Princess Leia", "Mandalorian", "Shrek", "Elsa", "Buzz Lightyear", "Woody", "Mr. Incredible", "Katniss", "Harry Potter", "Hermione", "Gandalf"] },
-  { id: "movies", label: "Movies & TV", words: ["Titanic", "Jaws", "Frozen", "Avatar", "Jurassic Park", "Toy Story", "The Lion King", "Home Alone", "The Matrix", "Rocky", "Ghostbusters", "Finding Nemo", "The Avengers", "Star Wars", "Harry Potter", "Shrek", "Moana", "Coco", "Encanto", "The Office", "Friends", "Stranger Things", "Wednesday", "Bluey", "SpongeBob", "Scooby-Doo", "The Simpsons", "Game of Thrones", "Breaking Bad", "Top Gun", "Barbie", "Oppenheimer", "Inside Out", "Cars", "The Incredibles"] },
-  { id: "sports", label: "Sports", words: ["football", "basketball", "baseball", "soccer", "golf", "tennis", "volleyball", "hockey", "boxing", "wrestling", "swimming", "surfing", "skiing", "snowboarding", "skateboarding", "gymnastics", "bowling", "fishing", "archery", "karate", "cycling", "running", "rowing", "cricket", "rugby", "lacrosse", "pickleball", "dodgeball", "cheerleading", "weightlifting", "fencing", "horse racing", "table tennis", "billiards", "cornhole"] },
-  { id: "places", label: "Places", words: ["beach", "airport", "school", "hospital", "zoo", "museum", "library", "restaurant", "stadium", "amusement park", "grocery store", "movie theater", "hotel", "campground", "mountain", "desert", "jungle", "island", "farm", "castle", "playground", "aquarium", "mall", "bank", "fire station", "police station", "coffee shop", "gym", "church", "office", "subway", "train station", "water park", "carnival", "barbershop"] },
-  { id: "objects", label: "Household Objects", words: ["toaster", "refrigerator", "microwave", "television", "couch", "lamp", "vacuum", "blender", "coffee maker", "dishwasher", "washing machine", "dryer", "mirror", "pillow", "blanket", "toothbrush", "hairbrush", "shower", "bathtub", "remote control", "clock", "fan", "iron", "mop", "broom", "trash can", "doorbell", "bookshelf", "curtain", "rug", "fork", "spoon", "frying pan", "kettle", "flashlight"] },
-  { id: "jobs", label: "Jobs", words: ["teacher", "doctor", "nurse", "firefighter", "police officer", "chef", "pilot", "soldier", "lawyer", "dentist", "mechanic", "farmer", "photographer", "barber", "cashier", "mail carrier", "lifeguard", "scientist", "engineer", "plumber", "electrician", "veterinarian", "artist", "musician", "actor", "coach", "judge", "astronaut", "detective", "construction worker"] },
-  { id: "games", label: "Video Games", words: ["Minecraft", "Fortnite", "Mario", "Zelda", "Pokémon", "Roblox", "Call of Duty", "Grand Theft Auto", "Among Us", "Sonic", "Halo", "Animal Crossing", "The Sims", "Madden", "FIFA", "NBA 2K", "Rocket League", "Apex Legends", "Overwatch", "Fall Guys", "Pac-Man", "Tetris", "Donkey Kong", "Kirby", "Luigi", "Bowser", "Master Chief", "Kratos", "Link", "Pikachu", "Lara Croft", "Street Fighter", "Mortal Kombat", "Skyrim", "Destiny"] },
-  { id: "music", label: "Music", words: ["guitar", "piano", "drums", "violin", "trumpet", "saxophone", "microphone", "concert", "DJ", "rapper", "singer", "band", "orchestra", "karaoke", "headphones", "playlist", "album", "chorus", "melody", "rhythm", "country", "rock", "hip-hop", "jazz", "classical", "pop", "reggae", "dance", "festival", "record player", "harmonica", "flute", "cello", "banjo", "tambourine"] },
-  { id: "kids", label: "Kids", words: ["playground", "birthday cake", "dinosaur", "unicorn", "pirate", "princess", "robot", "monster", "superhero", "treasure", "balloon", "trampoline", "water slide", "treehouse", "sleepover", "school bus", "lunchbox", "crayon", "building blocks", "teddy bear", "kite", "bubble", "snowman", "tooth fairy", "Santa Claus", "Easter Bunny", "hide-and-seek", "tag", "hopscotch", "roller coaster", "circus", "magic wand", "spaceship", "dragon", "mermaid"] },
-  { id: "random", label: "Random", words: ["rainbow", "volcano", "spaceship", "headphones", "keyboard", "umbrella", "backpack", "elevator", "traffic light", "roller coaster", "campfire", "snowman", "lighthouse", "treasure chest", "robot", "pirate", "ninja", "wizard", "dragon", "unicorn", "tornado", "earthquake", "fireworks", "moon", "satellite", "submarine", "helicopter", "motorcycle", "tractor", "skyscraper", "bridge", "fountain", "maze", "telescope", "compass", "magnet", "battery", "camera", "passport", "suitcase", "crown", "diamond", "ghost", "zombie", "vampire", "snow globe", "time machine", "hot air balloon", "waterfall", "cactus"] },
-];
-
 // ---- Types ----
+interface Category {
+  id: string;
+  label: string;
+  words: string[];
+}
+
 interface Player {
   id: string;
   name: string;
@@ -120,6 +111,11 @@ export default function App() {
   // or `round` — those don't carry it until reveal. null = not loaded yet
   // (either no active round, or the fetch is in flight).
   const [myRoundInfo, setMyRoundInfo] = useState<MyRoundInfo | null>(null);
+  // Word lists live in the database (categories/category_words) instead of a
+  // bundled array, so editing them never requires a redeploy. Fetched once on
+  // mount for both local and online play.
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
 
   const [isOnline, setIsOnline] = useState(false);
   const [isHost, setIsHost] = useState(false);
@@ -241,6 +237,39 @@ export default function App() {
       setRestoringSession(false);
     }
     restoreSession();
+  }, []);
+
+  // Fetch categories from the database. Needed for local mode too, not just
+  // online — both rely on the same category_words table now.
+  useEffect(() => {
+    if (!supabase) {
+      setCategoriesLoading(false);
+      return;
+    }
+    let cancelled = false;
+    supabase
+      .from("categories")
+      .select("id, label, category_words(word)")
+      .order("sort_order", { ascending: true })
+      .then(({ data, error }: any) => {
+        if (cancelled) return;
+        if (error || !data) {
+          console.error(error);
+          setCategoriesLoading(false);
+          return;
+        }
+        setCategories(
+          data.map((row: any) => ({
+            id: row.id,
+            label: row.label,
+            words: (row.category_words || []).map((w: { word: string }) => w.word),
+          }))
+        );
+        setCategoriesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // ---- Subscribe to Supabase realtime (everyone online) ----
@@ -565,12 +594,13 @@ export default function App() {
   }
 
   async function startGame(categoryId?: string, customWord?: string) {
+    if (categories.length === 0) return;
     const impIndex = rand(players.length);
     const roles = players.map((p, i) => ({ ...p, isImposter: i === impIndex }));
 
     const cat =
-      defaultCategories.find((c) => c.id === (categoryId || "random")) ||
-      defaultCategories[0];
+      categories.find((c) => c.id === (categoryId || "random")) ||
+      categories[0];
     const previousWords = usedWords;
     const availableWords = cat.words.filter((word) => !previousWords.includes(word.toLowerCase()));
     const pool = availableWords.length > 0 ? availableWords : cat.words;
@@ -844,6 +874,8 @@ export default function App() {
             onSyncRoom={syncRoom}
             roomSyncPending={roomSyncPending}
             startPending={startPending}
+            categories={categories}
+            categoriesLoading={categoriesLoading}
           />
         )}
 
@@ -1095,6 +1127,8 @@ function Lobby({
   onSyncRoom,
   roomSyncPending,
   startPending,
+  categories,
+  categoriesLoading,
 }: {
   roomCode: string;
   players: Player[];
@@ -1110,6 +1144,8 @@ function Lobby({
   onSyncRoom: () => void;
   roomSyncPending: boolean;
   startPending?: boolean;
+  categories: Category[];
+  categoriesLoading: boolean;
 }) {
   const setupStorageKey = `imposter-game:round-setup:${roomCode}`;
   const [categoryId, setCategoryId] = useState(() => {
@@ -1242,12 +1278,17 @@ function Lobby({
               className="w-full mt-1 mb-3 px-3 py-2 bg-zinc-900/60 border border-zinc-700 rounded-xl"
               value={categoryId}
               onChange={(e) => setCategoryId(e.target.value)}
+              disabled={categoriesLoading}
             >
-              {defaultCategories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
-              ))}
+              {categoriesLoading ? (
+                <option>Loading…</option>
+              ) : (
+                categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
+                  </option>
+                ))
+              )}
             </select>
 
             <label className="text-sm opacity-80">Or choose a custom secret word</label>
@@ -1259,9 +1300,9 @@ function Lobby({
             />
             <button
               onClick={() => onStart(categoryId, customWord)}
-              disabled={!allReady || startPending}
+              disabled={!allReady || startPending || categoriesLoading || categories.length === 0}
               className={`w-full py-3 rounded-2xl font-semibold transition ${
-                allReady && !startPending
+                allReady && !startPending && !categoriesLoading && categories.length > 0
                   ? "bg-white text-black"
                   : "bg-zinc-700 text-zinc-400 cursor-not-allowed"
               }`}
@@ -1269,7 +1310,9 @@ function Lobby({
               {startPending ? "Starting…" : "Start game"}
             </button>
             <div className="text-xs opacity-70 mt-2">
-              Need at least 3 players{isOnline && " and everyone ready"}.
+              {categoriesLoading
+                ? "Loading categories…"
+                : <>Need at least 3 players{isOnline && " and everyone ready"}.</>}
             </div>
           </div>
         ) : (
