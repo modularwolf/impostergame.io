@@ -1,0 +1,12 @@
+-- DO NOT RUN THIS AGAINST PRODUCTION.
+--
+-- round_secrets / start_round_secure / get_my_round_info / reveal_round_secure
+-- are already relied on by the LIVE iOS app, independent of anything in this
+-- repo. Dropping them would break real iOS players' games, not just undo
+-- something this repo added.
+--
+-- If the web client's switch to the secure round path specifically needs to
+-- be undone, revert the App.tsx diff (point it back at start_round /
+-- reveal via the public state) — leave the underlying secure functions in
+-- place, since iOS still needs them.
+select 1;
