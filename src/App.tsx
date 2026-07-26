@@ -18,6 +18,8 @@ interface Category {
   id: string;
   label: string;
   words: string[];
+  isPremium: boolean;
+  priceCents: number | null;
 }
 
 interface Player {
@@ -116,6 +118,14 @@ export default function App() {
   // mount for both local and online play.
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
+  // Account login is ONLY for buying/using paid categories — the free flow
+  // above never touches this. authUser is null when signed out.
+  const [authUser, setAuthUser] = useState<{ id: string; email: string | null } | null>(null);
+  const [ownedCategoryIds, setOwnedCategoryIds] = useState<Set<string>>(new Set());
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPending, setAuthPending] = useState(false);
+  const [authMagicLinkSent, setAuthMagicLinkSent] = useState(false);
+  const [authError, setAuthError] = useState("");
 
   const [isOnline, setIsOnline] = useState(false);
   const [isHost, setIsHost] = useState(false);
@@ -249,7 +259,7 @@ export default function App() {
     let cancelled = false;
     supabase
       .from("categories")
-      .select("id, label, category_words(word)")
+      .select("id, label, is_premium, price_cents, category_words(word)")
       .order("sort_order", { ascending: true })
       .then(({ data, error }: any) => {
         if (cancelled) return;
@@ -263,6 +273,8 @@ export default function App() {
             id: row.id,
             label: row.label,
             words: (row.category_words || []).map((w: { word: string }) => w.word),
+            isPremium: !!row.is_premium,
+            priceCents: row.price_cents ?? null,
           }))
         );
         setCategoriesLoading(false);
@@ -271,6 +283,72 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  // Account auth — ONLY relevant to buying/owning premium categories. Free
+  // hosting/joining never touches this. Tracks the current session and
+  // reacts to sign-in (including the magic-link redirect landing back here).
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }: any) => {
+      const user = data?.session?.user;
+      setAuthUser(user ? { id: user.id, email: user.email ?? null } : null);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event: string, session: any) => {
+      const user = session?.user;
+      setAuthUser(user ? { id: user.id, email: user.email ?? null } : null);
+    });
+    return () => {
+      sub?.subscription?.unsubscribe();
+    };
+  }, []);
+
+  // Once signed in, load which premium categories this account owns.
+  // entitlements RLS already scopes rows to auth.uid(), so no need to filter
+  // by user id here.
+  useEffect(() => {
+    if (!supabase || !authUser) {
+      setOwnedCategoryIds(new Set());
+      return;
+    }
+    let cancelled = false;
+    supabase
+      .from("entitlements")
+      .select("category_id")
+      .then(({ data, error }: any) => {
+        if (cancelled) return;
+        if (error || !data) {
+          console.error(error);
+          return;
+        }
+        setOwnedCategoryIds(new Set(data.map((row: any) => row.category_id)));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authUser]);
+
+  async function sendMagicLink(email: string) {
+    if (!supabase) return;
+    setAuthPending(true);
+    setAuthError("");
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: { emailRedirectTo: window.location.origin },
+    });
+    setAuthPending(false);
+    if (error) {
+      setAuthError(error.message || "Could not send the sign-in link.");
+      return;
+    }
+    setAuthMagicLinkSent(true);
+  }
+
+  async function signOut() {
+    if (!supabase) return;
+    await supabase.auth.signOut();
+    setAuthUser(null);
+    setOwnedCategoryIds(new Set());
+  }
 
   // ---- Subscribe to Supabase realtime (everyone online) ----
   useEffect(() => {
@@ -601,6 +679,13 @@ export default function App() {
     const cat =
       categories.find((c) => c.id === (categoryId || "random")) ||
       categories[0];
+    // Premium round-start isn't wired yet (needs a future entitlement-checked
+    // serving RPC, mirroring round_secrets) — category_words RLS means
+    // cat.words is empty for a premium category regardless of ownership, so
+    // bail out rather than start a round with no possible secret word. The
+    // Start button already disables for this case; this is a defensive
+    // backstop, not the actual security boundary (that's RLS).
+    if (!customWord?.trim() && (cat.isPremium || cat.words.length === 0)) return;
     const previousWords = usedWords;
     const availableWords = cat.words.filter((word) => !previousWords.includes(word.toLowerCase()));
     const pool = availableWords.length > 0 ? availableWords : cat.words;
@@ -876,6 +961,15 @@ export default function App() {
             startPending={startPending}
             categories={categories}
             categoriesLoading={categoriesLoading}
+            authUser={authUser}
+            ownedCategoryIds={ownedCategoryIds}
+            authEmail={authEmail}
+            setAuthEmail={setAuthEmail}
+            authPending={authPending}
+            authMagicLinkSent={authMagicLinkSent}
+            authError={authError}
+            onSendMagicLink={sendMagicLink}
+            onSignOut={signOut}
           />
         )}
 
@@ -1129,6 +1223,15 @@ function Lobby({
   startPending,
   categories,
   categoriesLoading,
+  authUser,
+  ownedCategoryIds,
+  authEmail,
+  setAuthEmail,
+  authPending,
+  authMagicLinkSent,
+  authError,
+  onSendMagicLink,
+  onSignOut,
 }: {
   roomCode: string;
   players: Player[];
@@ -1146,6 +1249,15 @@ function Lobby({
   startPending?: boolean;
   categories: Category[];
   categoriesLoading: boolean;
+  authUser: { id: string; email: string | null } | null;
+  ownedCategoryIds: Set<string>;
+  authEmail: string;
+  setAuthEmail: (v: string) => void;
+  authPending: boolean;
+  authMagicLinkSent: boolean;
+  authError: string;
+  onSendMagicLink: (email: string) => void;
+  onSignOut: () => void;
 }) {
   const setupStorageKey = `imposter-game:round-setup:${roomCode}`;
   const [categoryId, setCategoryId] = useState(() => {
@@ -1165,6 +1277,7 @@ function Lobby({
     }
   });
   const [newPlayerName, setNewPlayerName] = useState("");
+  const selectedCategory = categories.find((c) => c.id === categoryId);
 
   useEffect(() => {
     try {
@@ -1285,11 +1398,59 @@ function Lobby({
               ) : (
                 categories.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.label}
+                    {c.isPremium
+                      ? `🔒 ${c.label} — $${((c.priceCents || 0) / 100).toFixed(2)}`
+                      : c.label}
                   </option>
                 ))
               )}
             </select>
+
+            {selectedCategory?.isPremium && (
+              <div className="rounded-xl border border-amber-500/50 bg-amber-500/10 p-3 mb-3 text-xs">
+                {!authUser ? (
+                  authMagicLinkSent ? (
+                    <div className="opacity-90">
+                      Check <b>{authEmail}</b> for a sign-in link, then come back here.
+                    </div>
+                  ) : (
+                    <>
+                      <div className="mb-2 opacity-90">
+                        <b>{selectedCategory.label}</b> is a premium category. Sign in to check if you own it.
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          className="flex-1 px-2 py-1 bg-zinc-900/60 border border-zinc-700 rounded-lg text-xs"
+                          placeholder="you@email.com"
+                          value={authEmail}
+                          onChange={(e) => setAuthEmail(e.target.value)}
+                        />
+                        <button
+                          onClick={() => onSendMagicLink(authEmail)}
+                          disabled={!authEmail.trim() || authPending}
+                          className="px-3 py-1 rounded-lg bg-amber-400 text-black font-semibold disabled:opacity-50"
+                        >
+                          {authPending ? "…" : "Sign in"}
+                        </button>
+                      </div>
+                      {!!authError && <div className="mt-1 text-rose-300">{authError}</div>}
+                    </>
+                  )
+                ) : ownedCategoryIds.has(selectedCategory.id) ? (
+                  <div className="opacity-90">
+                    You own <b>{selectedCategory.label}</b>! Starting rounds with premium categories is coming soon.
+                  </div>
+                ) : (
+                  <div className="opacity-90">
+                    Signed in as {authUser.email}. You don&apos;t own <b>{selectedCategory.label}</b> yet —
+                    purchasing is coming soon.{" "}
+                    <button onClick={onSignOut} className="underline">
+                      Sign out
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
 
             <label className="text-sm opacity-80">Or choose a custom secret word</label>
             <input
@@ -1300,9 +1461,15 @@ function Lobby({
             />
             <button
               onClick={() => onStart(categoryId, customWord)}
-              disabled={!allReady || startPending || categoriesLoading || categories.length === 0}
+              disabled={
+                !allReady ||
+                startPending ||
+                categoriesLoading ||
+                categories.length === 0 ||
+                !!selectedCategory?.isPremium
+              }
               className={`w-full py-3 rounded-2xl font-semibold transition ${
-                allReady && !startPending && !categoriesLoading && categories.length > 0
+                allReady && !startPending && !categoriesLoading && categories.length > 0 && !selectedCategory?.isPremium
                   ? "bg-white text-black"
                   : "bg-zinc-700 text-zinc-400 cursor-not-allowed"
               }`}
@@ -1312,7 +1479,9 @@ function Lobby({
             <div className="text-xs opacity-70 mt-2">
               {categoriesLoading
                 ? "Loading categories…"
-                : <>Need at least 3 players{isOnline && " and everyone ready"}.</>}
+                : selectedCategory?.isPremium
+                  ? "Starting rounds with premium categories isn't available yet."
+                  : <>Need at least 3 players{isOnline && " and everyone ready"}.</>}
             </div>
           </div>
         ) : (
