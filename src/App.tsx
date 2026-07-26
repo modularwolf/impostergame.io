@@ -126,6 +126,8 @@ export default function App() {
   const [authPending, setAuthPending] = useState(false);
   const [authMagicLinkSent, setAuthMagicLinkSent] = useState(false);
   const [authError, setAuthError] = useState("");
+  const [checkoutPending, setCheckoutPending] = useState(false);
+  const [checkoutError, setCheckoutError] = useState("");
 
   const [isOnline, setIsOnline] = useState(false);
   const [isHost, setIsHost] = useState(false);
@@ -304,27 +306,25 @@ export default function App() {
 
   // Once signed in, load which premium categories this account owns.
   // entitlements RLS already scopes rows to auth.uid(), so no need to filter
-  // by user id here.
-  useEffect(() => {
+  // by user id here. Also re-run after a Stripe checkout redirect lands back
+  // here (see the effect below) — the webhook that actually grants the row
+  // runs async, slightly after the redirect, so this alone doesn't guarantee
+  // it's visible instantly; the checkout-return effect retries a few times.
+  async function refetchEntitlements() {
     if (!supabase || !authUser) {
       setOwnedCategoryIds(new Set());
       return;
     }
-    let cancelled = false;
-    supabase
-      .from("entitlements")
-      .select("category_id")
-      .then(({ data, error }: any) => {
-        if (cancelled) return;
-        if (error || !data) {
-          console.error(error);
-          return;
-        }
-        setOwnedCategoryIds(new Set(data.map((row: any) => row.category_id)));
-      });
-    return () => {
-      cancelled = true;
-    };
+    const { data, error } = await supabase.from("entitlements").select("category_id");
+    if (error || !data) {
+      console.error(error);
+      return;
+    }
+    setOwnedCategoryIds(new Set(data.map((row: any) => row.category_id)));
+  }
+
+  useEffect(() => {
+    refetchEntitlements();
   }, [authUser]);
 
   async function sendMagicLink(email: string) {
@@ -349,6 +349,51 @@ export default function App() {
     setAuthUser(null);
     setOwnedCategoryIds(new Set());
   }
+
+  async function startCheckout(categoryId: string) {
+    if (!supabase) return;
+    setCheckoutPending(true);
+    setCheckoutError("");
+    const origin = window.location.origin + window.location.pathname;
+    const { data, error } = await supabase.functions.invoke("create-checkout-session", {
+      body: {
+        categoryId,
+        successUrl: `${origin}?checkout=success`,
+        cancelUrl: `${origin}?checkout=cancel`,
+      },
+    });
+    setCheckoutPending(false);
+    if (error || !data?.url) {
+      setCheckoutError(data?.error || error?.message || "Could not start checkout.");
+      return;
+    }
+    window.location.href = data.url;
+  }
+
+  // Landed back here after a Stripe Checkout redirect. The webhook that
+  // grants the entitlement runs async and may lag the redirect by a beat,
+  // so retry the refetch a few times rather than checking just once.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const checkoutStatus = params.get("checkout");
+    if (!checkoutStatus) return;
+
+    if (checkoutStatus === "success") {
+      setNotice("Payment received! Unlocking your category…");
+      let attempts = 0;
+      const interval = setInterval(async () => {
+        attempts += 1;
+        await refetchEntitlements();
+        if (attempts >= 5) clearInterval(interval);
+      }, 1500);
+    } else if (checkoutStatus === "cancel") {
+      setNotice("Checkout cancelled — no charge was made.");
+    }
+
+    params.delete("checkout");
+    const next = params.toString();
+    window.history.replaceState({}, "", window.location.pathname + (next ? `?${next}` : ""));
+  }, []);
 
   // ---- Subscribe to Supabase realtime (everyone online) ----
   useEffect(() => {
@@ -970,6 +1015,9 @@ export default function App() {
             authError={authError}
             onSendMagicLink={sendMagicLink}
             onSignOut={signOut}
+            checkoutPending={checkoutPending}
+            checkoutError={checkoutError}
+            onBuy={startCheckout}
           />
         )}
 
@@ -1232,6 +1280,9 @@ function Lobby({
   authError,
   onSendMagicLink,
   onSignOut,
+  checkoutPending,
+  checkoutError,
+  onBuy,
 }: {
   roomCode: string;
   players: Player[];
@@ -1258,6 +1309,9 @@ function Lobby({
   authError: string;
   onSendMagicLink: (email: string) => void;
   onSignOut: () => void;
+  checkoutPending: boolean;
+  checkoutError: string;
+  onBuy: (categoryId: string) => void;
 }) {
   const setupStorageKey = `imposter-game:round-setup:${roomCode}`;
   const [categoryId, setCategoryId] = useState(() => {
@@ -1442,11 +1496,24 @@ function Lobby({
                   </div>
                 ) : (
                   <div className="opacity-90">
-                    Signed in as {authUser.email}. You don&apos;t own <b>{selectedCategory.label}</b> yet —
-                    purchasing is coming soon.{" "}
-                    <button onClick={onSignOut} className="underline">
-                      Sign out
-                    </button>
+                    <div className="mb-2">
+                      Signed in as {authUser.email}. You don&apos;t own <b>{selectedCategory.label}</b> yet.
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => onBuy(selectedCategory.id)}
+                        disabled={checkoutPending}
+                        className="px-3 py-1 rounded-lg bg-amber-400 text-black font-semibold disabled:opacity-50"
+                      >
+                        {checkoutPending
+                          ? "Redirecting to checkout…"
+                          : `Buy for $${((selectedCategory.priceCents || 0) / 100).toFixed(2)}`}
+                      </button>
+                      <button onClick={onSignOut} className="underline">
+                        Sign out
+                      </button>
+                    </div>
+                    {!!checkoutError && <div className="mt-1 text-rose-300">{checkoutError}</div>}
                   </div>
                 )}
               </div>
