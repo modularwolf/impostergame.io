@@ -1104,6 +1104,7 @@ export default function App() {
             myPlayerId={myPlayerId}
             myRoundInfo={myRoundInfo}
             round={round}
+            categories={categories}
             turnIndex={turnIndex}
             onSubmitWord={submitWord}
             onVote={castVote}
@@ -1780,6 +1781,7 @@ function Game({
   myPlayerId,
   myRoundInfo,
   round,
+  categories,
   turnIndex,
   onSubmitWord,
   onVote,
@@ -1796,6 +1798,7 @@ function Game({
   myPlayerId: string;
   myRoundInfo: MyRoundInfo | null;
   round: RoundConfig;
+  categories: Category[];
   turnIndex: number;
   onSubmitWord: (w: string) => void;
   onVote: (targetId: string) => void;
@@ -1848,7 +1851,9 @@ function Game({
         <div className="flex items-center justify-between mb-4">
           <div>
             <div className="text-xs opacity-70">Category</div>
-            <div className="text-lg font-semibold capitalize">{round.categoryId}</div>
+            <div className="text-lg font-semibold">
+              {categories.find((c) => c.id === round.categoryId)?.label || round.categoryId}
+            </div>
           </div>
           <div className="text-right">
             {isOnline ? (
