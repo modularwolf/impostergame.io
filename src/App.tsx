@@ -22,6 +22,20 @@ interface Category {
   priceCents: number | null;
 }
 
+// Picks a word not already used in this room if possible, matching the
+// server-side fallback in start_round_secure/start_round_premium: fall back
+// to any word in the category once the unused pool is exhausted. Only used
+// for free categories and custom-word overrides — a premium category's
+// words are picked server-side (category_words RLS hides them from the
+// client regardless of ownership).
+function pickSecretWord(cat: Category, usedWords: string[], customWord?: string) {
+  const trimmed = customWord?.trim();
+  if (trimmed) return trimmed;
+  const available = cat.words.filter((w) => !usedWords.includes(w.toLowerCase()));
+  const pool = available.length > 0 ? available : cat.words;
+  return pool[rand(pool.length)];
+}
+
 interface Player {
   id: string;
   name: string;
@@ -60,6 +74,12 @@ interface SyncedState {
   usedWords?: string[];
   roomNotice?: string;
   roundEndReason?: "imposterLeft";
+  // Host's in-progress category choice, broadcast during the lobby so every
+  // player can see what's about to be played, not just the host. Never
+  // carries the custom-word text itself — that stays private until the
+  // round actually starts (round_secrets).
+  pendingCategoryId?: string;
+  pendingHasCustomWord?: boolean;
 }
 
 interface OnlineSession {
@@ -139,6 +159,10 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [roomNotice, setRoomNotice] = useState("");
   const [roundEndReason, setRoundEndReason] = useState<"imposterLeft" | "">("");
+  // Host's in-progress category choice, broadcast so non-host players can
+  // see what's about to be played instead of a generic "waiting" message.
+  const [pendingCategoryId, setPendingCategoryId] = useState("");
+  const [pendingHasCustomWord, setPendingHasCustomWord] = useState(false);
   const [activeSession, setActiveSession] = useState<OnlineSession | null>(() => readOnlineSession());
 
   // Local-only: pass-and-play role reveal index
@@ -177,6 +201,8 @@ export default function App() {
       votes,
       usedWords,
       roomNotice: roomNotice || undefined,
+      pendingCategoryId: pendingCategoryId || undefined,
+      pendingHasCustomWord,
       ...overrides,
     };
   }
@@ -196,6 +222,8 @@ export default function App() {
     if (s.roomNotice && s.roomNotice !== roomNotice) setNotice(s.roomNotice);
     setRoomNotice(s.roomNotice || "");
     setRoundEndReason(s.roundEndReason || "");
+    setPendingCategoryId(s.pendingCategoryId || "");
+    setPendingHasCustomWord(!!s.pendingHasCustomWord);
     if (myPlayerId) setIsHost(s.hostPlayerId === myPlayerId);
   }
 
@@ -209,6 +237,21 @@ export default function App() {
     if (error) {
       console.error("Supabase upsert error:", error);
     }
+  }
+
+  async function pushPendingCategory(nextPendingCategoryId: string, nextPendingHasCustomWord: boolean) {
+    // Not secret, so a plain read-merge-write is fine (matches the existing
+    // nextRound pattern) — worst case under a rare concurrent write is a
+    // stale category label for a moment, self-correcting on the next sync.
+    if (!onlineAvailable || !supabase || !roomCode) return;
+    const { data } = await supabase.from("rooms").select("state").eq("code", roomCode).maybeSingle();
+    const current = data?.state as SyncedState | undefined;
+    if (!current) return;
+    const { error } = await supabase.from("rooms").upsert({
+      code: roomCode,
+      state: { ...current, pendingCategoryId: nextPendingCategoryId, pendingHasCustomWord: nextPendingHasCustomWord },
+    });
+    if (error) console.error(error);
   }
 
   async function resumeOnlineSession(session?: OnlineSession | null) {
@@ -729,25 +772,46 @@ export default function App() {
     const cat =
       categories.find((c) => c.id === (categoryId || "random")) ||
       categories[0];
-    // Premium round-start isn't wired yet (needs a future entitlement-checked
-    // serving RPC, mirroring round_secrets) — category_words RLS means
-    // cat.words is empty for a premium category regardless of ownership, so
-    // bail out rather than start a round with no possible secret word. The
-    // Start button already disables for this case; this is a defensive
-    // backstop, not the actual security boundary (that's RLS).
-    if (!customWord?.trim() && (cat.isPremium || cat.words.length === 0)) return;
-    const previousWords = usedWords;
-    const availableWords = cat.words.filter((word) => !previousWords.includes(word.toLowerCase()));
-    const pool = availableWords.length > 0 ? availableWords : cat.words;
-    const secret = customWord?.trim() || pool[rand(pool.length)];
-    const nextUsedWords = [...previousWords, secret.toLowerCase()].slice(-100);
 
-    // random starting player index
+    const trimmedCustom = customWord?.trim();
+    // A premium category's words are never visible to the client (RLS hides
+    // category_words regardless of ownership) — a custom word overrides that
+    // entirely, so it doesn't need the premium serving path either way.
+    const usePremiumServerWord = isOnline && cat.isPremium && !trimmedCustom;
+
+    if (!trimmedCustom && !usePremiumServerWord && cat.words.length === 0) return;
+
     const startingIndex = rand(players.length);
 
     bumpRoundStarted(players.length);
 
     if (isOnline) {
+      if (!supabase || startPending) return;
+      setStartPending(true);
+
+      if (usePremiumServerWord) {
+        // The secret word is picked server-side here — the client never had
+        // access to this category's words to begin with, so there's nothing
+        // to send except which category and who's playing. See
+        // supabase/migrations/006_premium_round_start.sql.
+        const { data, error } = await supabase.rpc("start_round_premium", {
+          p_room_code: roomCode,
+          p_host_id: myPlayerId,
+          p_imposter_index: impIndex,
+          p_category_id: cat.id,
+          p_starting_index: startingIndex,
+          p_used_words: usedWords,
+        });
+        setStartPending(false);
+        if (error) {
+          console.error(error);
+          alert(error.message || "Could not start the round. Please try again.");
+          return;
+        }
+        if (data) applyState(data as SyncedState);
+        return;
+      }
+
       // Server-authoritative start: the server applies the imposter role and
       // secret onto its freshest player list, so a last-instant join/ready
       // can't erase anyone. We send index positions; the server clamps them.
@@ -755,8 +819,8 @@ export default function App() {
       // imposter flag never enter the broadcast state — each client fetches
       // its own via get_my_round_info instead. See
       // supabase/migrations/001_private_round_secrets.sql.
-      if (!supabase || startPending) return;
-      setStartPending(true);
+      const secret = pickSecretWord(cat, usedWords, trimmedCustom);
+      const nextUsedWords = [...usedWords, secret.toLowerCase()].slice(-100);
       const { data, error } = await supabase.rpc("start_round_secure", {
         p_room_code: roomCode,
         p_host_id: myPlayerId,
@@ -775,6 +839,7 @@ export default function App() {
       if (data) applyState(data as SyncedState);
     } else {
       // local: go into pass-and-play role reveal flow
+      const secret = pickSecretWord(cat, usedWords, trimmedCustom);
       setLocalRoleIndex(0);
       const next = buildState({
         stage: "localRoles",
@@ -1017,6 +1082,9 @@ export default function App() {
             checkoutPending={checkoutPending}
             checkoutError={checkoutError}
             onBuy={startCheckout}
+            pendingCategoryId={pendingCategoryId}
+            pendingHasCustomWord={pendingHasCustomWord}
+            onBroadcastPending={pushPendingCategory}
           />
         )}
 
@@ -1036,6 +1104,7 @@ export default function App() {
             myPlayerId={myPlayerId}
             myRoundInfo={myRoundInfo}
             round={round}
+            categories={categories}
             turnIndex={turnIndex}
             onSubmitWord={submitWord}
             onVote={castVote}
@@ -1206,25 +1275,34 @@ function Landing({
         />
         <button
           onClick={onCreateLocal}
-          className="w-full py-3 rounded-2xl bg-white text-black font-semibold hover:opacity-90 transition mb-2"
+          disabled={!hostName.trim()}
+          className={`w-full py-3 rounded-2xl font-semibold transition mb-2 ${
+            hostName.trim()
+              ? "bg-white text-black hover:opacity-90"
+              : "bg-zinc-700 text-zinc-400 cursor-not-allowed"
+          }`}
         >
           Start local game
         </button>
         <button
           onClick={onHostOnline}
-          disabled={!onlineAvailable}
+          disabled={!onlineAvailable || !hostName.trim()}
           className={`w-full py-3 rounded-2xl font-semibold transition ${
-            onlineAvailable
+            onlineAvailable && hostName.trim()
               ? "bg-emerald-400 text-black hover:bg-emerald-300"
               : "bg-zinc-700 text-zinc-400 cursor-not-allowed"
           }`}
         >
           Host online room
         </button>
-        {!onlineAvailable && (
-          <p className="text-xs opacity-60 mt-2">
-            Online play will unlock after Supabase is configured.
-          </p>
+        {!hostName.trim() ? (
+          <p className="text-xs opacity-60 mt-2">Enter your name to continue.</p>
+        ) : (
+          !onlineAvailable && (
+            <p className="text-xs opacity-60 mt-2">
+              Online play will unlock after Supabase is configured.
+            </p>
+          )
         )}
       </div>
 
@@ -1253,15 +1331,18 @@ function Landing({
 
         <button
           onClick={() => onJoinOnline(joinCode, joinName)}
-          disabled={!joinCode.trim() || !onlineAvailable}
+          disabled={!joinCode.trim() || !joinName.trim() || !onlineAvailable}
           className={`w-full py-3 rounded-2xl font-semibold transition ${
-            joinCode.trim() && onlineAvailable
+            joinCode.trim() && joinName.trim() && onlineAvailable
               ? "bg-white text-black"
               : "bg-zinc-700 text-zinc-400 cursor-not-allowed"
           }`}
         >
           Join online game
         </button>
+        {!joinName.trim() && (
+          <p className="text-xs opacity-60 mt-2">Enter your name to continue.</p>
+        )}
       </div>
     </div>
     </>
@@ -1291,6 +1372,9 @@ function Lobby({
   checkoutPending,
   checkoutError,
   onBuy,
+  pendingCategoryId,
+  pendingHasCustomWord,
+  onBroadcastPending,
 }: {
   roomCode: string;
   players: Player[];
@@ -1314,6 +1398,9 @@ function Lobby({
   checkoutPending: boolean;
   checkoutError: string;
   onBuy: (categoryId: string) => void;
+  pendingCategoryId: string;
+  pendingHasCustomWord: boolean;
+  onBroadcastPending: (categoryId: string, hasCustomWord: boolean) => void;
 }) {
   const setupStorageKey = `imposter-game:round-setup:${roomCode}`;
   const [categoryId, setCategoryId] = useState(() => {
@@ -1334,6 +1421,13 @@ function Lobby({
   });
   const [newPlayerName, setNewPlayerName] = useState("");
   const selectedCategory = categories.find((c) => c.id === categoryId);
+  // A typed-in custom word always overrides the category's own words (free
+  // or premium), so it bypasses the ownership requirement entirely — same
+  // logic as startGame's usePremiumServerWord check.
+  const premiumBlocked =
+    !!selectedCategory?.isPremium &&
+    !customWord.trim() &&
+    (!isOnline || !authUser || !ownedCategoryIds.has(selectedCategory.id));
 
   useEffect(() => {
     try {
@@ -1341,7 +1435,16 @@ function Lobby({
     } catch {
       // Storage can be unavailable in private/restricted browser modes.
     }
-  }, [setupStorageKey, categoryId, customWord]);
+    // Broadcast so non-host players can see what's about to be played —
+    // only the host's own selection should ever be pushed, never a
+    // non-host's local (default) copy of this same state. onBroadcastPending
+    // isn't in the deps below on purpose — its identity changes on every
+    // parent re-render, which would otherwise re-fire this on every realtime
+    // update while sitting in the lobby, not just on an actual selection.
+    if (isHost && isOnline) {
+      onBroadcastPending(categoryId, !!customWord.trim());
+    }
+  }, [setupStorageKey, categoryId, customWord, isHost, isOnline]);
 
   return (
     <div className="rounded-3xl p-6 bg-zinc-800/50 border border-zinc-700">
@@ -1489,7 +1592,8 @@ function Lobby({
                   </div>
                 ) : ownedCategoryIds.has(selectedCategory.id) ? (
                   <div className="opacity-90">
-                    You own <b>{selectedCategory.label}</b>! Starting rounds with premium categories is coming soon.
+                    You own <b>{selectedCategory.label}</b>!{" "}
+                    {isOnline ? "Ready to play." : "Premium categories need an online room."}
                   </div>
                 ) : (
                   <div className="opacity-90">
@@ -1525,10 +1629,10 @@ function Lobby({
                 startPending ||
                 categoriesLoading ||
                 categories.length === 0 ||
-                !!selectedCategory?.isPremium
+                premiumBlocked
               }
               className={`w-full py-3 rounded-2xl font-semibold transition ${
-                allReady && !startPending && !categoriesLoading && categories.length > 0 && !selectedCategory?.isPremium
+                allReady && !startPending && !categoriesLoading && categories.length > 0 && !premiumBlocked
                   ? "bg-white text-black"
                   : "bg-zinc-700 text-zinc-400 cursor-not-allowed"
               }`}
@@ -1538,14 +1642,28 @@ function Lobby({
             <div className="text-xs opacity-70 mt-2">
               {categoriesLoading
                 ? "Loading categories…"
-                : selectedCategory?.isPremium
-                  ? "Starting rounds with premium categories isn't available yet."
+                : premiumBlocked
+                  ? !isOnline
+                    ? "Premium categories need an online room."
+                    : !authUser
+                      ? "Sign in to start a round with this category."
+                      : "You need to buy this category first."
                   : <>Need at least 3 players{isOnline && " and everyone ready"}.</>}
             </div>
           </div>
         ) : (
-          <div className="rounded-2xl bg-zinc-900/40 border border-zinc-700 p-4 flex items-center justify-center text-sm opacity-80">
-            Waiting for the host to pick a category and start the round.
+          <div className="rounded-2xl bg-zinc-900/40 border border-zinc-700 p-4 text-sm opacity-80">
+            {pendingHasCustomWord ? (
+              <div>The host has set a custom secret word.</div>
+            ) : pendingCategoryId ? (
+              <div>
+                Category:{" "}
+                <b>{categories.find((c) => c.id === pendingCategoryId)?.label || pendingCategoryId}</b>
+              </div>
+            ) : (
+              <div>Waiting for the host to pick a category.</div>
+            )}
+            <div className="mt-1 text-xs opacity-60">Waiting for the host to start the round.</div>
           </div>
         )}
       </div>
@@ -1663,6 +1781,7 @@ function Game({
   myPlayerId,
   myRoundInfo,
   round,
+  categories,
   turnIndex,
   onSubmitWord,
   onVote,
@@ -1679,6 +1798,7 @@ function Game({
   myPlayerId: string;
   myRoundInfo: MyRoundInfo | null;
   round: RoundConfig;
+  categories: Category[];
   turnIndex: number;
   onSubmitWord: (w: string) => void;
   onVote: (targetId: string) => void;
@@ -1731,7 +1851,9 @@ function Game({
         <div className="flex items-center justify-between mb-4">
           <div>
             <div className="text-xs opacity-70">Category</div>
-            <div className="text-lg font-semibold capitalize">{round.categoryId}</div>
+            <div className="text-lg font-semibold">
+              {categories.find((c) => c.id === round.categoryId)?.label || round.categoryId}
+            </div>
           </div>
           <div className="text-right">
             {isOnline ? (
