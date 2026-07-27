@@ -1,0 +1,16 @@
+# stripe-webhook is called by Stripe, not by our own client — it can never
+# carry a Supabase JWT in its Authorization header, so Supabase's default
+# platform-level JWT check (which runs before any function code, including
+# ours) rejects every delivery with UNAUTHORIZED_NO_AUTH_HEADER before the
+# request even reaches index.ts. Disabling that platform check here is safe
+# specifically because the function does its OWN, correct verification
+# instead: Stripe's signature on the raw body (stripe.webhooks.constructEventAsync
+# with STRIPE_WEBHOOK_SECRET). That's what actually proves the request came
+# from Stripe — this setting only turns off a check that was never the right
+# one for this endpoint to begin with.
+#
+# create-checkout-session is NOT listed here — it's called by our own
+# authenticated client via supabase.functions.invoke(), which does attach a
+# real user JWT, so the default platform check is correct and wanted there.
+[functions.stripe-webhook]
+verify_jwt = false
