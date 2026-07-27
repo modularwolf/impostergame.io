@@ -146,6 +146,11 @@ export default function App() {
 
   // How-to-play modal
   const [showHowTo, setShowHowTo] = useState(false);
+  // Account modal — sign in / view owned categories / sign out. Reachable
+  // proactively (not just when a premium category happens to be selected),
+  // since once someone owns more than one pack they need a way to check
+  // what they have without clicking through categories one at a time.
+  const [showAccount, setShowAccount] = useState(false);
 
   // Session analytics
   const [stats, setStats] = useState<SessionStats>({
@@ -1008,13 +1013,7 @@ export default function App() {
             categoriesLoading={categoriesLoading}
             authUser={authUser}
             ownedCategoryIds={ownedCategoryIds}
-            authEmail={authEmail}
-            setAuthEmail={setAuthEmail}
-            authPending={authPending}
-            authMagicLinkSent={authMagicLinkSent}
-            authError={authError}
-            onSendMagicLink={sendMagicLink}
-            onSignOut={signOut}
+            onOpenAccount={() => setShowAccount(true)}
             checkoutPending={checkoutPending}
             checkoutError={checkoutError}
             onBuy={startCheckout}
@@ -1065,6 +1064,21 @@ export default function App() {
       </div>
 
       {showHowTo && <HowToPlayModal onClose={() => setShowHowTo(false)} />}
+      {showAccount && (
+        <AccountModal
+          authUser={authUser}
+          categories={categories}
+          ownedCategoryIds={ownedCategoryIds}
+          authEmail={authEmail}
+          setAuthEmail={setAuthEmail}
+          authPending={authPending}
+          authMagicLinkSent={authMagicLinkSent}
+          authError={authError}
+          onSendMagicLink={sendMagicLink}
+          onSignOut={signOut}
+          onClose={() => setShowAccount(false)}
+        />
+      )}
     </div>
   );
 }
@@ -1273,13 +1287,7 @@ function Lobby({
   categoriesLoading,
   authUser,
   ownedCategoryIds,
-  authEmail,
-  setAuthEmail,
-  authPending,
-  authMagicLinkSent,
-  authError,
-  onSendMagicLink,
-  onSignOut,
+  onOpenAccount,
   checkoutPending,
   checkoutError,
   onBuy,
@@ -1302,13 +1310,7 @@ function Lobby({
   categoriesLoading: boolean;
   authUser: { id: string; email: string | null } | null;
   ownedCategoryIds: Set<string>;
-  authEmail: string;
-  setAuthEmail: (v: string) => void;
-  authPending: boolean;
-  authMagicLinkSent: boolean;
-  authError: string;
-  onSendMagicLink: (email: string) => void;
-  onSignOut: () => void;
+  onOpenAccount: () => void;
   checkoutPending: boolean;
   checkoutError: string;
   onBuy: (categoryId: string) => void;
@@ -1440,6 +1442,19 @@ function Lobby({
             <p className="text-xs opacity-70 mb-3">
               Players can ready up at any time. Your category and custom word stay selected.
             </p>
+
+            {/* Always visible, independent of which category is selected —
+                once someone owns more than one pack they need a way to check
+                their account without clicking through categories one at a
+                time. Never shown outside the host's lobby view, so the free
+                flow (landing, join) stays untouched. */}
+            <div className="flex items-center justify-between text-xs mb-3 opacity-80">
+              <span>{authUser ? <>Signed in as {authUser.email}</> : "Not signed in"}</span>
+              <button onClick={onOpenAccount} className="underline font-semibold">
+                {authUser ? "Manage account" : "Sign in"}
+              </button>
+            </div>
+
             <label className="text-sm opacity-80">Category</label>
             <select
               className="w-full mt-1 mb-3 px-3 py-2 bg-zinc-900/60 border border-zinc-700 rounded-xl"
@@ -1453,7 +1468,9 @@ function Lobby({
                 categories.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.isPremium
-                      ? `🔒 ${c.label} — $${((c.priceCents || 0) / 100).toFixed(2)}`
+                      ? ownedCategoryIds.has(c.id)
+                        ? `✅ ${c.label}`
+                        : `🔒 ${c.label} — $${((c.priceCents || 0) / 100).toFixed(2)}`
                       : c.label}
                   </option>
                 ))
@@ -1463,33 +1480,13 @@ function Lobby({
             {selectedCategory?.isPremium && (
               <div className="rounded-xl border border-amber-500/50 bg-amber-500/10 p-3 mb-3 text-xs">
                 {!authUser ? (
-                  authMagicLinkSent ? (
-                    <div className="opacity-90">
-                      Check <b>{authEmail}</b> for a sign-in link, then come back here.
-                    </div>
-                  ) : (
-                    <>
-                      <div className="mb-2 opacity-90">
-                        <b>{selectedCategory.label}</b> is a premium category. Sign in to check if you own it.
-                      </div>
-                      <div className="flex gap-2">
-                        <input
-                          className="flex-1 px-2 py-1 bg-zinc-900/60 border border-zinc-700 rounded-lg text-xs"
-                          placeholder="you@email.com"
-                          value={authEmail}
-                          onChange={(e) => setAuthEmail(e.target.value)}
-                        />
-                        <button
-                          onClick={() => onSendMagicLink(authEmail)}
-                          disabled={!authEmail.trim() || authPending}
-                          className="px-3 py-1 rounded-lg bg-amber-400 text-black font-semibold disabled:opacity-50"
-                        >
-                          {authPending ? "…" : "Sign in"}
-                        </button>
-                      </div>
-                      {!!authError && <div className="mt-1 text-rose-300">{authError}</div>}
-                    </>
-                  )
+                  <div className="opacity-90">
+                    <b>{selectedCategory.label}</b> is a premium category.{" "}
+                    <button onClick={onOpenAccount} className="underline font-semibold">
+                      Sign in
+                    </button>{" "}
+                    to check if you own it.
+                  </div>
                 ) : ownedCategoryIds.has(selectedCategory.id) ? (
                   <div className="opacity-90">
                     You own <b>{selectedCategory.label}</b>! Starting rounds with premium categories is coming soon.
@@ -1497,22 +1494,17 @@ function Lobby({
                 ) : (
                   <div className="opacity-90">
                     <div className="mb-2">
-                      Signed in as {authUser.email}. You don&apos;t own <b>{selectedCategory.label}</b> yet.
+                      You don&apos;t own <b>{selectedCategory.label}</b> yet.
                     </div>
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => onBuy(selectedCategory.id)}
-                        disabled={checkoutPending}
-                        className="px-3 py-1 rounded-lg bg-amber-400 text-black font-semibold disabled:opacity-50"
-                      >
-                        {checkoutPending
-                          ? "Redirecting to checkout…"
-                          : `Buy for $${((selectedCategory.priceCents || 0) / 100).toFixed(2)}`}
-                      </button>
-                      <button onClick={onSignOut} className="underline">
-                        Sign out
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => onBuy(selectedCategory.id)}
+                      disabled={checkoutPending}
+                      className="px-3 py-1 rounded-lg bg-amber-400 text-black font-semibold disabled:opacity-50"
+                    >
+                      {checkoutPending
+                        ? "Redirecting to checkout…"
+                        : `Buy for $${((selectedCategory.priceCents || 0) / 100).toFixed(2)}`}
+                    </button>
                     {!!checkoutError && <div className="mt-1 text-rose-300">{checkoutError}</div>}
                   </div>
                 )}
@@ -2035,6 +2027,110 @@ function Footer({
         <span>Avg players/round: {avgPlayersPerRound}</span>
       </div>
       */}
+    </div>
+  );
+}
+
+function AccountModal({
+  authUser,
+  categories,
+  ownedCategoryIds,
+  authEmail,
+  setAuthEmail,
+  authPending,
+  authMagicLinkSent,
+  authError,
+  onSendMagicLink,
+  onSignOut,
+  onClose,
+}: {
+  authUser: { id: string; email: string | null } | null;
+  categories: Category[];
+  ownedCategoryIds: Set<string>;
+  authEmail: string;
+  setAuthEmail: (v: string) => void;
+  authPending: boolean;
+  authMagicLinkSent: boolean;
+  authError: string;
+  onSendMagicLink: (email: string) => void;
+  onSignOut: () => void;
+  onClose: () => void;
+}) {
+  const owned = categories.filter((c) => ownedCategoryIds.has(c.id));
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
+      <div className="max-w-lg w-full rounded-3xl bg-zinc-900 border border-zinc-700 p-6 shadow-2xl">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xl font-bold">Account</h2>
+          <button
+            onClick={onClose}
+            className="text-xs px-2 py-1 rounded-full bg-zinc-800 hover:bg-zinc-700"
+          >
+            Close
+          </button>
+        </div>
+
+        {!authUser ? (
+          authMagicLinkSent ? (
+            <div className="text-sm opacity-90">
+              Check <b>{authEmail}</b> for a sign-in link, then come back here.
+            </div>
+          ) : (
+            <>
+              <p className="text-sm opacity-80 mb-3">
+                Sign in to buy premium categories, or to unlock ones you already bought on another
+                device.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  className="flex-1 px-3 py-2 bg-zinc-950/80 border border-zinc-700 rounded-xl text-sm"
+                  placeholder="you@email.com"
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                />
+                <button
+                  onClick={() => onSendMagicLink(authEmail)}
+                  disabled={!authEmail.trim() || authPending}
+                  className="px-4 py-2 rounded-xl bg-emerald-400 text-black font-semibold disabled:opacity-50"
+                >
+                  {authPending ? "…" : "Sign in"}
+                </button>
+              </div>
+              {!!authError && <div className="mt-2 text-sm text-rose-300">{authError}</div>}
+            </>
+          )
+        ) : (
+          <>
+            <p className="text-sm opacity-80 mb-3">
+              Signed in as <b>{authUser.email}</b>
+            </p>
+            <h3 className="text-sm font-semibold mb-2">Your categories</h3>
+            {owned.length === 0 ? (
+              <p className="text-xs opacity-60 mb-4">
+                You don&apos;t own any premium categories yet — pick one in the lobby to buy it.
+              </p>
+            ) : (
+              <ul className="space-y-1 mb-4">
+                {owned.map((c) => (
+                  <li key={c.id} className="text-sm flex items-center gap-2">
+                    <span className="text-emerald-400">✓</span> {c.label}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <button
+              onClick={() => {
+                onSignOut();
+                onClose();
+              }}
+              className="text-sm underline opacity-80"
+            >
+              Sign out
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }
